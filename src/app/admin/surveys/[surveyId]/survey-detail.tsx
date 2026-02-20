@@ -135,7 +135,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
         sec.comments.push(...comments);
       } else if(q.type==="multiple_choice"){
         const options = q.config?.options||[];
-        const optionCounts = options.map((opt)=>({ option:opt, count:qResps.filter((r)=>r.response?.value===opt||(r.response?.index!==undefined&&options[r.response.index]===opt)).length }));
+        const optionCounts = options.map((opt)=>({ option:opt, count:qResps.filter((r)=>r.response?.value===opt||(Array.isArray(r.response?.value)&&r.response.value.includes(opt))||(r.response?.index!==undefined&&options[r.response.index]===opt)||(Array.isArray(r.response?.indices)&&r.response.indices.some((idx:number)=>options[idx]===opt))).length }));
         sec.questionScores.push({qKey:q.qKey,prompt:q.prompt?.en||q.qKey,type:q.type,avgScore:0,maxScore:0,count:qResps.length,optionCounts});
       } else {
         const scores = qResps.map((r)=>r.score).filter((s):s is number=>s!==null);
@@ -150,6 +150,9 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
         const pctAvg = scored.reduce((a,b)=>a+(b.maxScore>0?b.avgScore/b.maxScore:0),0)/scored.length;
         sec.avgScore = Math.round(pctAvg*maxForSection*100)/100;
         sec.maxScore = maxForSection;
+      } else {
+        sec.avgScore = 0;
+        sec.maxScore = 0;
       }
     }
     return Array.from(sectionMap.values());
@@ -708,13 +711,27 @@ ${dataText}`;
 
       <div style={{maxWidth:960,margin:"0 auto",padding:"24px 24px"}}>
         {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:12,marginBottom:32}}>
-          {[{label:"Responses",value:sessions.length,icon:<Users size={16}/>},{label:"Avg Time",value:formatTime(avgTimeSeconds),icon:<Clock size={16}/>},{label:"Completed",value:sessions.length>0?`${Math.round((completed.length/sessions.length)*100)}%`:"—",icon:<BarChart3 size={16}/>},{label:"Comments",value:allComments.length,icon:<MessageSquare size={16}/>}].map((s)=>(
-            <div key={s.label} style={{...glassStyle(dark),padding:16}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><span style={{color:accentBg(dark)}}>{s.icon}</span><span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>{s.label}</span></div>
-              <div style={{fontSize:24,fontWeight:700,color:textColor(dark,"primary"),lineHeight:1}}>{s.value}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:12,marginBottom:32}}>
+          {/* Responses tile */}
+          <div style={{...glassStyle(dark),padding:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><span style={{color:accentBg(dark)}}><Users size={16}/></span><span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>Responses</span></div>
+            <div style={{fontSize:24,fontWeight:700,color:textColor(dark,"primary"),lineHeight:1,marginBottom:8}}>{completed.length}</div>
+            <div style={{display:"flex",gap:12,fontSize:11,color:textColor(dark,"tertiary")}}>
+              <span>{sessions.length} opened</span>
+              <span>·</span>
+              <span>{sessions.length>0?Math.round((completed.length/sessions.length)*100):0}% completion</span>
             </div>
-          ))}
+          </div>
+          {/* Avg Time tile */}
+          <div style={{...glassStyle(dark),padding:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><span style={{color:accentBg(dark)}}><Clock size={16}/></span><span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>Avg Time</span></div>
+            <div style={{fontSize:24,fontWeight:700,color:textColor(dark,"primary"),lineHeight:1}}>{formatTime(avgTimeSeconds)}</div>
+          </div>
+          {/* Comments tile */}
+          <div style={{...glassStyle(dark),padding:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><span style={{color:accentBg(dark)}}><MessageSquare size={16}/></span><span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>Comments</span></div>
+            <div style={{fontSize:24,fontWeight:700,color:textColor(dark,"primary"),lineHeight:1}}>{allComments.length}</div>
+          </div>
         </div>
 
         {/* Deployments */}
@@ -758,6 +775,7 @@ ${dataText}`;
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
                     {sec.maxScore>0&&<><span style={{fontSize:20,fontWeight:700,color:scoreColor(sec.avgScore,sec.maxScore,dark)}}>{sec.avgScore}</span><span style={{fontSize:12,color:textColor(dark,"tertiary")}}>/{sec.maxScore}</span></>}
+                    {sec.maxScore===0&&<span style={{fontSize:11,color:textColor(dark,"tertiary")}}>{sec.questionScores.reduce((a,b)=>a+b.count,0)} responses</span>}
                     {expandedSections.has(sec.section)?<ChevronUp size={16} style={{color:textColor(dark,"tertiary")}}/>:<ChevronDown size={16} style={{color:textColor(dark,"tertiary")}}/>}
                   </div>
                 </button>
@@ -805,6 +823,7 @@ ${dataText}`;
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
                   <span style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary")}}>{sec.sectionTitle}</span>
                   {sec.maxScore>0&&<span style={{fontSize:22,fontWeight:700,color:scoreColor(sec.avgScore,sec.maxScore,dark)}}>{sec.avgScore}<span style={{fontSize:12,color:textColor(dark,"tertiary")}}>/{sec.maxScore}</span></span>}
+                  {sec.maxScore===0&&<span style={{fontSize:11,color:textColor(dark,"tertiary")}}>{sec.questionScores.reduce((a,b)=>a+b.count,0)} responses</span>}
                 </div>
                 {sec.questionScores.map((qs)=>(
                   <div key={qs.qKey} style={{marginBottom:10}}>

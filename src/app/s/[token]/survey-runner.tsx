@@ -91,7 +91,7 @@ export function SurveyRunner({ token }: { token: string }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [sliderValues, setSliderValues] = useState<Record<string, number>>({});
-  const [selectedMC, setSelectedMC] = useState<Record<string, number>>({});
+  const [selectedMC, setSelectedMC] = useState<Record<string, number[]>>({});
   const [fadeState, setFadeState] = useState<"in" | "out">("in");
   const [mounted, setMounted] = useState(false);
   const [showLangPicker, setShowLangPicker] = useState(false);
@@ -213,9 +213,10 @@ export function SurveyRunner({ token }: { token: string }) {
         responseData.response = { value: val };
         responseData.score = val;
       } else if (q.type === "multiple_choice") {
-        const idx = selectedMC[q.id];
-        if (idx !== undefined && q.config?.options) {
-          responseData.response = { value: q.config.options[idx], index: idx };
+        const indices = selectedMC[q.id] || [];
+        if (indices.length > 0 && q.config?.options) {
+          const values = indices.map((idx) => q.config!.options![idx]);
+          responseData.response = { value: values.length === 1 ? values[0] : values, indices };
           responseData.score = null;
         }
       } else if (q.type === "open_text" || q.type === "text") {
@@ -243,7 +244,15 @@ export function SurveyRunner({ token }: { token: string }) {
 
   function setAnswer(qId: string, val: any) { setAnswers((p) => ({ ...p, [qId]: val })); }
   function setSlider(qId: string, val: number) { setSliderValues((p) => ({ ...p, [qId]: val })); }
-  function setMC(qId: string, val: number) { setSelectedMC((p) => ({ ...p, [qId]: val })); }
+  function setMC(qId: string, val: number, multi: boolean) {
+    setSelectedMC((p) => {
+      const curr = p[qId] || [];
+      if (multi) {
+        return { ...p, [qId]: curr.includes(val) ? curr.filter((v) => v !== val) : [...curr, val] };
+      }
+      return { ...p, [qId]: curr.includes(val) ? [] : [val] };
+    });
+  }
 
   function t(textMap: Record<string, string> | undefined): string {
     if (!textMap) return "";
@@ -600,12 +609,12 @@ export function SurveyRunner({ token }: { token: string }) {
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16 }}>
                   <div style={{
                     width: 22, height: 22, borderRadius: 6, flexShrink: 0, marginTop: 1,
-                    background: answers[q.id] !== undefined || sliderValues[q.id] !== undefined || selectedMC[q.id] !== undefined
+                    background: answers[q.id] !== undefined || sliderValues[q.id] !== undefined || (selectedMC[q.id] && selectedMC[q.id].length > 0)
                       ? "linear-gradient(135deg, #E8723A, #F4A261)" : "rgba(0,0,0,0.06)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "all 0.2s ease",
                   }}>
-                    {(answers[q.id] !== undefined || sliderValues[q.id] !== undefined || selectedMC[q.id] !== undefined) ? (
+                    {(answers[q.id] !== undefined || sliderValues[q.id] !== undefined || (selectedMC[q.id] && selectedMC[q.id].length > 0)) ? (
                       <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="#fff" strokeWidth="3">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
@@ -700,10 +709,14 @@ export function SurveyRunner({ token }: { token: string }) {
                 {/* MULTIPLE CHOICE */}
                 {q.type === "multiple_choice" && (
                   <div style={{ paddingLeft: 32, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {q.config?.selectMode === "multi" && (
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>Select all that apply</div>
+                    )}
                     {(q.config?.options || []).map((opt, oi) => {
-                      const selected = selectedMC[q.id] === oi;
+                      const isMulti = q.config?.selectMode === "multi";
+                      const selected = (selectedMC[q.id] || []).includes(oi);
                       return (
-                        <button key={oi} onClick={() => setMC(q.id, oi)} style={{
+                        <button key={oi} onClick={() => setMC(q.id, oi, isMulti)} style={{
                           display: "flex", alignItems: "center", gap: 12,
                           padding: "14px 16px", borderRadius: 10, border: "none",
                           fontFamily: "'DM Sans', system-ui, sans-serif",
@@ -712,11 +725,13 @@ export function SurveyRunner({ token }: { token: string }) {
                           boxShadow: selected ? "inset 0 0 0 2px #E8723A" : "inset 0 0 0 1px rgba(0,0,0,0.06)",
                         }}>
                           <div style={{
-                            width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                            width: 20, height: 20, borderRadius: isMulti ? 4 : "50%", flexShrink: 0,
                             border: `2px solid ${selected ? "#E8723A" : "#ccc"}`,
                             display: "flex", alignItems: "center", justifyContent: "center",
+                            background: selected && isMulti ? "#E8723A" : "transparent",
                           }}>
-                            {selected && <div style={{ width: 10, height: 10, borderRadius: "50%", background: "linear-gradient(135deg, #E8723A, #F4A261)" }} />}
+                            {selected && !isMulti && <div style={{ width: 10, height: 10, borderRadius: "50%", background: "linear-gradient(135deg, #E8723A, #F4A261)" }} />}
+                            {selected && isMulti && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
                           </div>
                           <span style={{ fontSize: 14, fontWeight: selected ? 600 : 400, color: selected ? "#2a2a2a" : "#555" }}>{opt}</span>
                         </button>
