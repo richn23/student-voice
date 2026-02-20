@@ -244,28 +244,30 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
 
 CRITICAL RULES:
 - Use EXACT numbers from the data. Never say "2-4 responses" — say the exact count for each question.
-- Do NOT create an "overall score" by mixing different question types together. Scale (0-5), slider (0-100), and NPS (0-10) are different measures and cannot be averaged into one number.
-- Report each question type's results separately with its own scale.
-- If fewer than 5 completed responses, state this is a very small sample and findings should be treated as preliminary.
+- Do NOT create an "overall score" by mixing different question types. Scale, slider, and NPS are different measures — report each on its own scale (e.g. "3.3 out of 5", "72 out of 100", "5.5 out of 10").
+- If fewer than 5 completed responses, note this is a small sample.
 
 STRUCTURE (use these exact headings):
 
 ## Summary
-2-3 sentences: When the survey was conducted, how many people completed it out of how many who opened it, and whether the overall sentiment was positive, negative, or mixed. Be specific.
+3 sentences maximum. State: when the survey was conducted (use the date provided), how many completed out of how many opened, average completion time if available, and one sentence on whether overall sentiment is positive, negative, or mixed based on the scores.
 
 ## Section Results
-For EACH section, write 1-2 sentences summarizing what the data shows. Use the exact scores on their native scale (e.g. "3.3 out of 5" not "66%"). For multiple choice, state the most popular option(s). For open text, quote responses.
+For EACH section, write 1-2 sentences. Use exact scores on their native scale. For multiple choice, state the most/least popular. For open text, quote the actual responses. For NPS, interpret the score (0-6 detractor, 7-8 passive, 9-10 promoter).
 
-## Key Findings
-- 3-5 bullet points of the most important insights
-- Use exact numbers and quotes
-- Flag anything notably high or low
+## 🟢 Green Flags
+Things going well. Exact scores and quotes. Max 3 bullets.
+
+## 🟠 Orange Flags
+Areas to watch. Moderate scores or mixed signals. Max 3 bullets.
+
+## 🔴 Red Flags
+Concerns. Low scores or negative comments. Max 3 bullets. If nothing concerning, write "None identified."
 
 ## Recommendations
-- 2-3 specific, actionable suggestions based on the data
-- Only recommend things the data actually supports
+2-3 specific, actionable suggestions tied to the data. Only recommend what the evidence supports.
 
-TONE: Professional, concise, factual. No filler. No vague language.`;
+TONE: Professional, concise, factual. No filler. No vague language. Each bullet max 1-2 sentences.`;
 
     try {
       const res = await fetch("/api/chat", {
@@ -535,6 +537,22 @@ ${dataText}`;
 
   // ─── PDF Report ───
   async function downloadPDF() {
+    // Auto-generate AI summary if not available
+    let summaryText = aiSummary;
+    if (!summaryText && completed.length > 0) {
+      try {
+        const dataText = buildDataSnapshot();
+        const sysPrompt = `You analyze student feedback survey data. Be precise and factual. Use EXACT numbers. Do NOT mix different question types into one overall score. Use these headings: ## Summary, ## Section Results, ## 🟢 Green Flags, ## 🟠 Orange Flags, ## 🔴 Red Flags, ## Recommendations. Max 3 bullets per section. Professional and concise.`;
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ system: sysPrompt, messages: [{ role: "user", content: `Analyze:\n\n${dataText}` }], max_tokens: 1024 }),
+        });
+        const data = await res.json();
+        if (data.text) { summaryText = data.text; setAiSummary(data.text); }
+      } catch {}
+    }
+
     const { default: jsPDF } = await import("jspdf");
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const W = 210; const H = 297; const M = 20; const CW = W - M * 2;
@@ -711,14 +729,14 @@ ${dataText}`;
     }
 
     // ═══ AI SUMMARY PAGE (if available) ═══
-    if (aiSummary) {
+    if (summaryText) {
       ftr(); pdf.addPage(); pageNum++; y = hdr(pageNum);
       pdf.setFontSize(16); pdf.setTextColor(...BLK); pdf.text("Analysis & Recommendations", M, y);
       pdf.setDrawColor(...BLUE); pdf.setLineWidth(0.5);
       pdf.line(M, y+2, M + pdf.getTextWidth("Analysis & Recommendations"), y+2);
       y += 12;
 
-      const summaryLines = aiSummary.split("\n");
+      const summaryLines = summaryText.split("\n");
       for (const line of summaryLines) {
         const trimmed = line.trim();
         if (!trimmed) { y += 3; continue; }
