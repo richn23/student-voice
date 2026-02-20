@@ -26,7 +26,8 @@ export function ThemeWrapper({ children }: { children: React.ReactNode }) {
         background: dark ? "#141414" : "#eaeef2",
         backgroundImage: `${dark ? darkGradient : lightGradient}, ${zenPattern}`,
         backgroundAttachment: "fixed",
-        backgroundSize: "100% 100%, 1200px 900px",
+        backgroundSize: "100% 100%, cover",
+        backgroundRepeat: "no-repeat, no-repeat",
         color: dark ? "#eaeaea" : "#1a1a1a",
       }}
     >
