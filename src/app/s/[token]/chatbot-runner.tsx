@@ -549,6 +549,7 @@ IMPORTANT:
       .replace(/<choices>[^<]*<\/choices>/g, "")
       .replace(/<multichoices>[^<]*<\/multichoices>/g, "")
       .replace(/<widget[^/]*\/>/g, "")
+      .replace(/<(scale|slider|nps)\s[^/]*\/>/g, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
@@ -566,15 +567,13 @@ IMPORTANT:
   }
 
   function extractWidget(text: string): ChatMessage["widget"] | undefined {
+    // Standard format: <widget type="scale" min="0" max="3" />
     const match = text.match(/<widget\s+type="([^"]+)"\s+min="([^"]+)"\s+max="([^"]+)"(?:\s+lowLabel="([^"]*)")?(?:\s+highLabel="([^"]*)")?\s*\/>/);
-    if (!match) return undefined;
-    return {
-      type: match[1] as "scale"|"slider"|"nps",
-      min: parseInt(match[2]) || 0,
-      max: parseInt(match[3]) || 3,
-      lowLabel: match[4],
-      highLabel: match[5],
-    };
+    if (match) return { type: match[1] as "scale"|"slider"|"nps", min: parseInt(match[2]) || 0, max: parseInt(match[3]) || 3, lowLabel: match[4], highLabel: match[5] };
+    // Shorthand: <nps min="0" max="10" /> or <scale min="0" max="3" /> or <slider min="0" max="100" />
+    const short = text.match(/<(scale|slider|nps)\s+min="([^"]+)"\s+max="([^"]+)"(?:\s+lowLabel="([^"]*)")?(?:\s+highLabel="([^"]*)")?\s*\/>/);
+    if (short) return { type: short[1] as "scale"|"slider"|"nps", min: parseInt(short[2]) || 0, max: parseInt(short[3]) || 3, lowLabel: short[4], highLabel: short[5] };
+    return undefined;
   }
 
   function sendChoice(choice: string) {
