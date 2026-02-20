@@ -162,6 +162,13 @@ export function ChatbotRunner({ token }: { token: string }) {
   const [savedResponses, setSavedResponses] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [chatUi, setChatUi] = useState({
+    thankYou: "Thank you!",
+    defaultCompletion: "Your feedback has been submitted. It helps us improve your experience.",
+    tapAll: "Tap all that apply, then press Done",
+    done: "Done ✓",
+    typeAnswer: "Type your answer...",
+  });
 
   // Language picker state
   const [showLangPicker, setShowLangPicker] = useState(false);
@@ -228,6 +235,49 @@ export function ChatbotRunner({ token }: { token: string }) {
     if (!d || !s) return;
 
     setLanguage(lang);
+
+    // Translate UI strings for non-English
+    if (lang !== "en") {
+      try {
+        const langLabel = LANGUAGES.find((l) => l.code === lang)?.label || lang;
+        const uiTexts = ["Thank you!", "Your feedback has been submitted. It helps us improve your experience.", "Tap all that apply, then press Done", "Done ✓", "Type your answer..."];
+        const numbered = uiTexts.map((t, i) => `${i + 1}. ${t}`).join("\n");
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fast: true,
+            system: `Translate each numbered line to ${langLabel}. Return ONLY the translations, one per line, numbered the same way. Keep it simple. Do not add anything else.`,
+            messages: [{ role: "user", content: numbered }],
+          }),
+        });
+        const data = await res.json();
+        if (data.text) {
+          const lines = data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean);
+          const keys = ["thankYou", "defaultCompletion", "tapAll", "done", "typeAnswer"];
+          const newUi = { ...chatUi };
+          keys.forEach((k, i) => { if (lines[i]) (newUi as any)[k] = lines[i]; });
+          setChatUi(newUi);
+        }
+        // Also translate completion message
+        if (s.completionMessage) {
+          const cRes = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fast: true,
+              system: `Translate to ${langLabel}. Return ONLY the translation.`,
+              messages: [{ role: "user", content: s.completionMessage }],
+            }),
+          });
+          const cData = await cRes.json();
+          if (cData.text?.trim()) setSurvey({ ...s, completionMessage: cData.text.trim() });
+        }
+      } catch (err) {
+        console.error("Chat UI translation error:", err);
+      }
+    }
+
     const versionId = d.versionId || d.surveyVersionId || "";
     const sessionRef = await addDoc(collection(db, "sessions"), {
       surveyId: d.surveyId,
@@ -303,8 +353,8 @@ HOW TO ASK — FOLLOW EXACTLY:
 - single choice: question text, then: <choices>Option A|Option B</choices>
 - multi choice: question text, then: <multichoices>Option A|Option B</multichoices>
 - open text: just ask the question (no tag needed)
-- CRITICAL: For multiple_choice questions you MUST copy the exact <choices> or <multichoices> tag from the question description. Never ask a multiple_choice question without the choices/multichoices tag.
-- After ALL questions done: "Thank you! Bye! 😊"
+- CRITICAL: For multiple_choice questions you MUST include the <choices> or <multichoices> tag. TRANSLATE the option text into ${langName} inside the tag. Example: if English options are "Monday|Tuesday" and language is French, write <choices>Lundi|Mardi</choices>. Keep the same number of options.
+- After ALL questions done: say thank you in ${langName}
 - Do NOT write "(0-3)" or "(0-100)" in the text. The widget handles the input.
 
 RESPONSE FORMAT:
@@ -314,7 +364,7 @@ After each student response, output a hidden tag with the parsed answer:
 For scale: value is the number (0-${questions.find(q => q.type === "scale")?.config?.max || 3})
 For slider: value is the number (0-100)  
 For nps: value is the number (0-10)
-For multiple_choice: value is the exact option text they chose
+For multiple_choice: value MUST be the ENGLISH option text from the question list above (not the translated version). Map the student's translated choice back to the English original.
 For open_text: value is their full text response
 
 If you can't parse a valid answer, ask for clarification. Do NOT include the tag if no valid answer was given.
@@ -765,9 +815,9 @@ IMPORTANT:
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", marginBottom: 8 }}>Thank you!</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", marginBottom: 8 }}>{chatUi.thankYou}</h2>
           <p style={{ fontSize: 14, color: "#666", lineHeight: 1.5 }}>
-            {survey?.completionMessage || "Your feedback has been submitted. It helps us improve your experience."}
+            {survey?.completionMessage || chatUi.defaultCompletion}
           </p>
         </div>
       </div>
@@ -931,7 +981,7 @@ IMPORTANT:
                 marginBottom: 10, paddingLeft: 4,
                 animation: "fadeSlide 0.3s ease",
               }}>
-                <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>Tap all that apply, then press Done</div>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>{chatUi.tapAll}</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {msg.multiChoices.map((choice, ci) => {
                     const sel = multiSelected.includes(choice);
@@ -975,7 +1025,7 @@ IMPORTANT:
                       boxShadow: `0 2px 8px ${ORANGE}44`,
                     }}
                   >
-                    Done ✓
+                    {chatUi.done}
                   </button>
                 )}
               </div>
@@ -1020,7 +1070,7 @@ IMPORTANT:
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-            placeholder="Type your answer..."
+            placeholder={chatUi.typeAnswer}
             disabled={isTyping}
             style={{
               flex: 1, padding: "12px 16px", fontSize: 15, fontFamily: "inherit",

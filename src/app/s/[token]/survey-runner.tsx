@@ -104,6 +104,7 @@ export function SurveyRunner({ token }: { token: string }) {
     thankYou: "Thank you", powered: "Powered by Student Voice",
     shareThoughts: "Share your thoughts...", selectAll: "Select all that apply",
     sectionOf: "of", section: "Section",
+    defaultCompletion: "Your feedback helps us improve. Thank you for taking the time!",
   });
 
   useEffect(() => {
@@ -189,7 +190,7 @@ export function SurveyRunner({ token }: { token: string }) {
         if (survey?.completionMessage) textsToTranslate.push({ key: "meta_completion", text: survey.completionMessage });
 
         // UI strings
-        const uiKeys = ["sections", "questions", "to complete", "Begin →", "Continue →", "Submit →", "← Back", "Thank you", "Powered by Student Voice", "Share your thoughts...", "Select all that apply", "Section", "of"];
+        const uiKeys = ["sections", "questions", "to complete", "Begin →", "Continue →", "Submit →", "← Back", "Thank you", "Powered by Student Voice", "Share your thoughts...", "Select all that apply", "Section", "of", "Your feedback helps us improve. Thank you for taking the time!"];
         uiKeys.forEach((text, i) => textsToTranslate.push({ key: `ui_${i}`, text }));
 
         // Collect section titles
@@ -199,11 +200,18 @@ export function SurveyRunner({ token }: { token: string }) {
           }
         });
 
-        // Collect question prompts
+        // Collect question prompts, labels, and options
         sections.forEach((sec) => {
           sec.questions.forEach((q) => {
             if (q.prompt.en && !q.prompt[lang]) {
               textsToTranslate.push({ key: `q_${q.id}`, text: q.prompt.en });
+            }
+            if (q.config?.lowLabel) textsToTranslate.push({ key: `qlow_${q.id}`, text: q.config.lowLabel });
+            if (q.config?.highLabel) textsToTranslate.push({ key: `qhigh_${q.id}`, text: q.config.highLabel });
+            if (q.config?.options) {
+              q.config.options.forEach((opt, oi) => {
+                textsToTranslate.push({ key: `qopt_${q.id}_${oi}`, text: opt });
+              });
             }
           });
         });
@@ -221,29 +229,63 @@ export function SurveyRunner({ token }: { token: string }) {
           });
           const data = await res.json();
           if (data.text) {
-            const lines = data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean);
+            // Parse by line number for robustness
+            const lineMap = new Map<number, string>();
+            data.text.split("\n").forEach((l: string) => {
+              const m = l.match(/^(\d+)\.\s*(.*)/);
+              if (m) lineMap.set(parseInt(m[1]), m[2].trim());
+            });
+            // Fallback: if no numbered lines found, use positional
+            if (lineMap.size === 0) {
+              data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean).forEach((l: string, i: number) => lineMap.set(i + 1, l));
+            }
+
             const translatedSurvey = { ...survey! };
             const newUi = { ...uiStrings };
             const updatedSections = [...sections];
 
             textsToTranslate.forEach((item, i) => {
-              if (!lines[i]) return;
-              if (item.key === "meta_title") translatedSurvey.title = lines[i];
-              else if (item.key === "meta_intro") translatedSurvey.intro = lines[i];
-              else if (item.key === "meta_completion") translatedSurvey.completionMessage = lines[i];
+              const translated = lineMap.get(i + 1);
+              if (!translated) return;
+              if (item.key === "meta_title") translatedSurvey.title = translated;
+              else if (item.key === "meta_intro") translatedSurvey.intro = translated;
+              else if (item.key === "meta_completion") translatedSurvey.completionMessage = translated;
               else if (item.key.startsWith("ui_")) {
                 const uiIdx = parseInt(item.key.split("_")[1]);
-                const uiMap = ["sections", "questions", "toComplete", "begin", "continue", "submit", "back", "thankYou", "powered", "shareThoughts", "selectAll", "section", "sectionOf"];
-                if (uiMap[uiIdx]) newUi[uiMap[uiIdx]] = lines[i];
+                const uiMap = ["sections", "questions", "toComplete", "begin", "continue", "submit", "back", "thankYou", "powered", "shareThoughts", "selectAll", "section", "sectionOf", "defaultCompletion"];
+                if (uiMap[uiIdx]) newUi[uiMap[uiIdx]] = translated;
               }
               else if (item.key.startsWith("sec_")) {
                 const si = parseInt(item.key.split("_")[1]);
-                updatedSections[si].title[lang] = lines[i];
+                updatedSections[si].title[lang] = translated;
+              } else if (item.key.startsWith("qlow_")) {
+                const qId = item.key.slice(5);
+                updatedSections.forEach((sec) => {
+                  sec.questions.forEach((q) => {
+                    if (q.id === qId && q.config) q.config.lowLabel = translated;
+                  });
+                });
+              } else if (item.key.startsWith("qhigh_")) {
+                const qId = item.key.slice(6);
+                updatedSections.forEach((sec) => {
+                  sec.questions.forEach((q) => {
+                    if (q.id === qId && q.config) q.config.highLabel = translated;
+                  });
+                });
+              } else if (item.key.startsWith("qopt_")) {
+                const parts = item.key.split("_");
+                const qId = parts[1];
+                const optIdx = parseInt(parts[2]);
+                updatedSections.forEach((sec) => {
+                  sec.questions.forEach((q) => {
+                    if (q.id === qId && q.config?.options) q.config.options[optIdx] = translated;
+                  });
+                });
               } else if (item.key.startsWith("q_")) {
                 const qId = item.key.slice(2);
                 updatedSections.forEach((sec) => {
                   sec.questions.forEach((q) => {
-                    if (q.id === qId) q.prompt[lang] = lines[i];
+                    if (q.id === qId) q.prompt[lang] = translated;
                   });
                 });
               }
@@ -941,7 +983,7 @@ export function SurveyRunner({ token }: { token: string }) {
                 {uiStrings.thankYou}
               </h2>
               <p style={{ fontSize: 15, color: "#777", margin: 0, lineHeight: 1.7 }}>
-                {survey?.completionMessage || "Your feedback helps us improve. Thank you for taking the time!"}
+                {survey?.completionMessage || uiStrings.defaultCompletion}
               </p>
 
               <div style={{
