@@ -75,6 +75,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [filterDeployment, setFilterDeployment] = useState<string>("all");
   // AI Summary state
   const [aiSummary, setAiSummary] = useState<string|null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -93,6 +94,8 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
   const [compareMode, setCompareMode] = useState<"1v1"|"all">("all");
   const [multiCompareSummary, setMultiCompareSummary] = useState<string|null>(null);
   const [multiCompareAiLoading, setMultiCompareAiLoading] = useState(false);
+  const [showReportPreview, setShowReportPreview] = useState(false);
+  const [reportContent, setReportContent] = useState<string>("");
 
   useEffect(() => { loadAll(); }, [surveyId]);
 
@@ -119,9 +122,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
     } catch(err){ console.error("Failed to load survey:",err); } finally { setLoading(false); }
   }
 
-  function computeSections(): SectionScore[] {
-    const flatResponses: ResponseData[] = [];
-    allResponses.forEach((resps)=>flatResponses.push(...resps));
+  function computeSectionsFromResponses(flatResponses: ResponseData[]): SectionScore[] {
     const sectionMap: Map<string,SectionScore> = new Map();
     for(const q of questions){
       const section = q.sectionId||q.section||"other";
@@ -161,8 +162,20 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
 
   function toggleSection(section: string){ setExpandedSections((prev)=>{ const next=new Set(prev); next.has(section)?next.delete(section):next.add(section); return next; }); }
 
-  const completed = sessions.filter((s)=>s.completedAt!==null);
-  const sectionScores = computeSections();
+  // Apply deployment filter
+  const filteredSessions = filterDeployment === "all" ? sessions : sessions.filter((s) => s.deploymentId === filterDeployment);
+  const filteredSessionIds = new Set(filteredSessions.map((s) => s.id));
+  const filteredResponses = new Map<string, ResponseData[]>();
+  allResponses.forEach((resps, sessId) => { if (filteredSessionIds.has(sessId)) filteredResponses.set(sessId, resps); });
+
+  function computeFilteredSections(): SectionScore[] {
+    const flatResponses: ResponseData[] = [];
+    filteredResponses.forEach((resps) => flatResponses.push(...resps));
+    return computeSectionsFromResponses(flatResponses);
+  }
+
+  const completed = filteredSessions.filter((s)=>s.completedAt!==null);
+  const sectionScores = computeFilteredSections();
   const scoredSections = sectionScores.filter((s)=>s.questionScores.some((q)=>q.type!=="multiple_choice"&&q.maxScore>0));
   const overallAvg = scoredSections.length>0?Math.round((scoredSections.reduce((a,b)=>a+(b.maxScore>0?b.avgScore/b.maxScore:0),0)/scoredSections.length)*100):0;
   const allComments = sectionScores.flatMap((s)=>s.comments);
@@ -178,7 +191,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
   function buildDataSnapshot(): string {
     const totalResponses = sessions.length;
     const completedCount = completed.length;
-    const secs = computeSections();
+    const allResps: ResponseData[] = []; filteredResponses.forEach((r) => allResps.push(...r)); const secs = computeSectionsFromResponses(allResps);
 
     let dataText = `SURVEY: "${survey?.title}"\n`;
     dataText += `TOTAL SESSIONS: ${totalResponses}\n`;
@@ -602,7 +615,7 @@ ${dataText}`;
     pdf.line(M, y+2, M + pdf.getTextWidth("Section Scores"), y+2);
     y += 14;
 
-    const secs = computeSections();
+    const allResps: ResponseData[] = []; filteredResponses.forEach((r) => allResps.push(...r)); const secs = computeSectionsFromResponses(allResps);
 
     for (const sec of secs) {
       chk(14);
@@ -701,8 +714,8 @@ ${dataText}`;
             <span style={badgeStyle(survey.status,dark)}>{survey.status}</span>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <button onClick={downloadCSV} disabled={sessions.length===0} title="Download CSV" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:sessions.length>0?"pointer":"default",color:sessions.length>0?textColor(dark,"secondary"):textColor(dark,"tertiary"),opacity:sessions.length>0?1:0.5}}><FileText size={15}/></button>
-            <button onClick={downloadPDF} disabled={sessions.length===0} title="Download PDF Report" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:sessions.length>0?"pointer":"default",color:sessions.length>0?textColor(dark,"secondary"):textColor(dark,"tertiary"),opacity:sessions.length>0?1:0.5}}><Download size={15}/></button>
+            <button onClick={downloadCSV} disabled={filteredSessions.length===0} title="Download CSV" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:filteredSessions.length>0?"pointer":"default",color:filteredSessions.length>0?textColor(dark,"secondary"):textColor(dark,"tertiary"),opacity:filteredSessions.length>0?1:0.5}}><Download size={15}/></button>
+            <button onClick={()=>setShowReportPreview(true)} disabled={filteredSessions.length===0} title="View Report" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:filteredSessions.length>0?"pointer":"default",color:filteredSessions.length>0?textColor(dark,"secondary"):textColor(dark,"tertiary"),opacity:filteredSessions.length>0?1:0.5}}><FileText size={15}/></button>
             <button disabled title="Share Report — Coming Soon" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:"default",color:textColor(dark,"tertiary"),opacity:0.4}}><Mail size={15}/></button>
             <button onClick={toggle} style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:"pointer",color:textColor(dark,"secondary")}}>{dark?<Sun size={15}/>:<Moon size={15}/>}</button>
             <a href={`/admin/surveys/${surveyId}/deployments/bulk`} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 16px",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:"transparent",color:textColor(dark,"secondary"),borderRadius:2,fontSize:13,fontWeight:600,textDecoration:"none"}}>Manage All</a>
@@ -719,9 +732,9 @@ ${dataText}`;
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><span style={{color:accentBg(dark)}}><Users size={16}/></span><span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>Responses</span></div>
             <div style={{fontSize:24,fontWeight:700,color:textColor(dark,"primary"),lineHeight:1,marginBottom:8}}>{completed.length}</div>
             <div style={{display:"flex",gap:12,fontSize:11,color:textColor(dark,"tertiary")}}>
-              <span>{sessions.length} opened</span>
+              <span>{filteredSessions.length} opened</span>
               <span>·</span>
-              <span>{sessions.length>0?Math.round((completed.length/sessions.length)*100):0}% completion</span>
+              <span>{filteredSessions.length>0?Math.round((completed.length/filteredSessions.length)*100):0}% completion</span>
             </div>
           </div>
           {/* Avg Time tile */}
@@ -765,6 +778,29 @@ ${dataText}`;
         <div style={{display:"flex",gap:0,borderBottom:`1px solid ${dark?"#333":"#d4d4d4"}`,marginBottom:24}}>
           {tabs.map((tab)=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{display:"flex",alignItems:"center",gap:6,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:"pointer",border:"none",background:"transparent",fontFamily:"inherit",transition:"all 0.15s",color:activeTab===tab.key?accentBg(dark):textColor(dark,"tertiary"),borderBottom:activeTab===tab.key?`2px solid ${accentBg(dark)}`:"2px solid transparent",marginBottom:-1}}>{tab.icon} {tab.label}</button>))}
         </div>
+
+        {/* Deployment filter */}
+        {deployments.length > 1 && (
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20}}>
+            <span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>Showing</span>
+            <select
+              value={filterDeployment}
+              onChange={(e) => { setFilterDeployment(e.target.value); setAiSummary(null); }}
+              style={{
+                padding:"6px 12px",fontSize:13,fontFamily:"inherit",fontWeight:500,
+                border:`1px solid ${dark?"#444":"#ccc"}`,borderRadius:2,
+                background:dark?"rgba(255,255,255,0.06)":"rgba(255,255,255,0.8)",
+                color:textColor(dark,"primary"),cursor:"pointer",outline:"none",
+              }}
+            >
+              <option value="all">All deployments ({sessions.length} sessions)</option>
+              {deployments.map((d) => {
+                const c = sessions.filter((s) => s.deploymentId === d.id).length;
+                return <option key={d.id} value={d.id}>{d.label} ({c} sessions)</option>;
+              })}
+            </select>
+          </div>
+        )}
 
         {/* Overview */}
         {activeTab==="overview"&&(
@@ -1241,6 +1277,109 @@ ${dataText}`;
           </div>
         )}
       </div>
+
+      {/* Report Preview Modal */}
+      {showReportPreview && (() => {
+        // Generate report content on open
+        if (!reportContent) {
+          const depLabel = filterDeployment === "all" ? "All Deployments" : deployments.find((d) => d.id === filterDeployment)?.label || "";
+          let text = `# ${survey?.title} — Survey Report\n`;
+          text += `**Date:** ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}\n`;
+          text += `**Deployment:** ${depLabel}\n`;
+          text += `**Responses:** ${completed.length} completed (${filteredSessions.length} opened)\n`;
+          if (avgTimeSeconds > 0) text += `**Avg Completion Time:** ${formatTime(avgTimeSeconds)}\n`;
+          if (overallAvg > 0) text += `**Overall Score:** ${overallAvg}%\n`;
+          text += `\n---\n\n`;
+
+          for (const sec of sectionScores) {
+            text += `## ${sec.sectionTitle}`;
+            if (sec.maxScore > 0) text += ` — ${sec.avgScore}/${sec.maxScore}`;
+            text += `\n\n`;
+            for (const qs of sec.questionScores) {
+              if (qs.type !== "multiple_choice" && qs.type !== "open_text" && qs.type !== "text" && qs.maxScore > 0) {
+                text += `- **${qs.prompt}:** ${qs.avgScore}/${qs.maxScore}\n`;
+              } else if (qs.type === "multiple_choice" && qs.optionCounts) {
+                text += `- **${qs.prompt}:** ${qs.optionCounts.map((oc) => `${oc.option} (${oc.count})`).join(", ")}\n`;
+              } else if (qs.type === "open_text" || qs.type === "text") {
+                text += `- **${qs.prompt}:** ${qs.count} responses\n`;
+              }
+            }
+            if (sec.comments.length > 0) {
+              text += `\n**Comments:**\n`;
+              sec.comments.forEach((c) => { text += `> "${c}"\n`; });
+            }
+            text += `\n`;
+          }
+
+          if (aiSummary) {
+            text += `---\n\n## AI Analysis\n\n${aiSummary}\n`;
+          }
+
+          setTimeout(() => setReportContent(text), 0);
+        }
+
+        return (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }} onClick={(e) => { if (e.target === e.currentTarget) { setShowReportPreview(false); setReportContent(""); } }}>
+            <div style={{
+              width: "100%", maxWidth: 720, maxHeight: "90vh",
+              background: dark ? "#1e1e1e" : "#fff",
+              borderRadius: 4, boxShadow: "0 24px 48px rgba(0,0,0,0.2)",
+              display: "flex", flexDirection: "column", overflow: "hidden",
+            }}>
+              {/* Header */}
+              <div style={{
+                padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+                borderBottom: `1px solid ${dark ? "#333" : "#e5e5e5"}`,
+              }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: textColor(dark, "primary") }}>Report Preview</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => { downloadPDF(); }} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                    border: "none", borderRadius: 2, cursor: "pointer",
+                    background: accentBg(dark), color: "#fff",
+                  }}><Download size={12}/> Download PDF</button>
+                  <button onClick={() => {
+                    const blob = new Blob([reportContent], { type: "text/markdown" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a"); a.href = url;
+                    a.download = `${survey?.title || "report"}.md`; a.click();
+                    URL.revokeObjectURL(url);
+                  }} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                    border: `1px solid ${dark ? "#444" : "#ccc"}`, borderRadius: 2, cursor: "pointer",
+                    background: "transparent", color: textColor(dark, "secondary"),
+                  }}><FileText size={12}/> Export .md</button>
+                  <button onClick={() => { setShowReportPreview(false); setReportContent(""); }} style={{
+                    width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center",
+                    border: "none", background: "transparent", cursor: "pointer",
+                    color: textColor(dark, "tertiary"), fontSize: 18,
+                  }}>✕</button>
+                </div>
+              </div>
+              {/* Editable content */}
+              <textarea
+                value={reportContent}
+                onChange={(e) => setReportContent(e.target.value)}
+                style={{
+                  flex: 1, padding: "24px 28px", fontSize: 13, lineHeight: 1.8,
+                  fontFamily: "'DM Sans', system-ui, monospace",
+                  border: "none", outline: "none", resize: "none",
+                  background: dark ? "#1e1e1e" : "#fff",
+                  color: textColor(dark, "primary"),
+                  overflowY: "auto",
+                }}
+              />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
