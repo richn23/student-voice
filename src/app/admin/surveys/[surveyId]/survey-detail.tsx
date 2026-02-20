@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, query, where, orderBy } from "firebase/firestore";
 import { useTheme } from "@/components/theme-provider";
-import { Sun, Moon, Users, BarChart3, Clock, MessageSquare, Link2, ChevronDown, ChevronUp, Plus, ClipboardList, ExternalLink, Sparkles, ArrowUp, ArrowDown, Minus, GitCompareArrows, Download, FileText } from "lucide-react";
+import { Sun, Moon, Users, BarChart3, Clock, MessageSquare, Link2, ChevronDown, ChevronUp, Plus, ClipboardList, ExternalLink, Sparkles, ArrowUp, ArrowDown, Minus, GitCompareArrows, Download, FileText, Share2, Mail } from "lucide-react";
 
 interface SurveyData { title: string; status: string; createdAt: Date; }
 interface QuestionData { id: string; qKey: string; type: string; prompt: Record<string,string>; section?: string; sectionId?: string; sectionTitle?: Record<string,string>; order: number; required?: boolean; config?: { min?: number; max?: number; lowLabel?: string; highLabel?: string; options?: string[]; selectMode?: string; }; }
@@ -133,6 +133,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
       if(q.type==="text"||q.type==="open_text"){
         const comments = qResps.map((r)=>r.responseText||r.response?.text).filter(Boolean) as string[];
         sec.comments.push(...comments);
+        sec.questionScores.push({qKey:q.qKey,prompt:q.prompt?.en||q.qKey,type:q.type,avgScore:0,maxScore:0,count:comments.length});
       } else if(q.type==="multiple_choice"){
         const options = q.config?.options||[];
         const optionCounts = options.map((opt)=>({ option:opt, count:qResps.filter((r)=>r.response?.value===opt||(Array.isArray(r.response?.value)&&r.response.value.includes(opt))||(r.response?.index!==undefined&&options[r.response.index]===opt)||(Array.isArray(r.response?.indices)&&r.response.indices.some((idx:number)=>options[idx]===opt))).length }));
@@ -702,6 +703,7 @@ ${dataText}`;
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <button onClick={downloadCSV} disabled={sessions.length===0} title="Download CSV" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:sessions.length>0?"pointer":"default",color:sessions.length>0?textColor(dark,"secondary"):textColor(dark,"tertiary"),opacity:sessions.length>0?1:0.5}}><FileText size={15}/></button>
             <button onClick={downloadPDF} disabled={sessions.length===0} title="Download PDF Report" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:sessions.length>0?"pointer":"default",color:sessions.length>0?textColor(dark,"secondary"):textColor(dark,"tertiary"),opacity:sessions.length>0?1:0.5}}><Download size={15}/></button>
+            <button disabled title="Share Report — Coming Soon" style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:"default",color:textColor(dark,"tertiary"),opacity:0.4}}><Mail size={15}/></button>
             <button onClick={toggle} style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:dark?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.6)",borderRadius:2,cursor:"pointer",color:textColor(dark,"secondary")}}>{dark?<Sun size={15}/>:<Moon size={15}/>}</button>
             <a href={`/admin/surveys/${surveyId}/deployments/bulk`} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 16px",border:`1px solid ${dark?"#333":"#d4d4d4"}`,background:"transparent",color:textColor(dark,"secondary"),borderRadius:2,fontSize:13,fontWeight:600,textDecoration:"none"}}>Manage All</a>
             <a href={`/admin/surveys/${surveyId}/deployments/new`} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 16px",background:accentBg(dark),color:"#fff",borderRadius:2,fontSize:13,fontWeight:600,textDecoration:"none",transition:"background 0.15s"}} onMouseEnter={(e)=>(e.currentTarget.style.background=accentHoverBg(dark))} onMouseLeave={(e)=>(e.currentTarget.style.background=accentBg(dark))}><Plus size={14}/> New Deployment</a>
@@ -751,6 +753,7 @@ ${dataText}`;
                     {dep.campus&&<span style={{fontSize:11,color:textColor(dark,"tertiary")}}>{dep.campus}</span>}
                     <span style={{fontSize:11,color:textColor(dark,"tertiary")}}>{depSessions.length} responses</span>
                     <a href={`/s/${dep.token}`} target="_blank" rel="noopener noreferrer" style={{color:textColor(dark,"tertiary"),display:"flex"}}><ExternalLink size={12}/></a>
+                    <button disabled title="Share link — Coming Soon" style={{background:"none",border:"none",padding:0,display:"flex",color:textColor(dark,"tertiary"),opacity:0.35,cursor:"default"}}><Share2 size={12}/></button>
                   </div>
                 );
               })}
@@ -786,10 +789,11 @@ ${dataText}`;
                         <div key={qs.qKey}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                             <span style={{fontSize:13,color:textColor(dark,"secondary"),flex:1}}>{qs.prompt}</span>
-                            {qs.type!=="multiple_choice"&&qs.maxScore>0&&<span style={{fontSize:13,fontWeight:600,color:scoreColor(qs.avgScore,qs.maxScore,dark),marginLeft:12}}>{qs.avgScore}/{qs.maxScore}</span>}
+                            {qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&<span style={{fontSize:13,fontWeight:600,color:scoreColor(qs.avgScore,qs.maxScore,dark),marginLeft:12}}>{qs.avgScore}/{qs.maxScore}</span>}
                             {qs.type==="multiple_choice"&&<span style={{fontSize:11,color:textColor(dark,"tertiary"),marginLeft:12}}>{qs.count} responses</span>}
+                            {(qs.type==="open_text"||qs.type==="text")&&<span style={{fontSize:11,color:textColor(dark,"tertiary"),marginLeft:12}}>{qs.count} responses</span>}
                           </div>
-                          {qs.type!=="multiple_choice"&&qs.maxScore>0&&(
+                          {qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&(
                             <div style={{height:6,background:dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.05)",borderRadius:1,overflow:"hidden"}}><div style={{height:"100%",width:`${qs.maxScore>0?(qs.avgScore/qs.maxScore)*100:0}%`,background:scoreColor(qs.avgScore,qs.maxScore,dark),borderRadius:1,transition:"width 0.3s ease"}}/></div>
                           )}
                           {qs.type==="multiple_choice"&&qs.optionCounts&&(
@@ -827,8 +831,8 @@ ${dataText}`;
                 </div>
                 {sec.questionScores.map((qs)=>(
                   <div key={qs.qKey} style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:textColor(dark,"secondary")}}>{qs.prompt}</span>{qs.type!=="multiple_choice"&&qs.maxScore>0&&<span style={{fontSize:12,fontWeight:600,color:scoreColor(qs.avgScore,qs.maxScore,dark)}}>{qs.avgScore}/{qs.maxScore}</span>}</div>
-                    {qs.type!=="multiple_choice"&&qs.maxScore>0&&<div style={{height:4,background:dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.05)",borderRadius:1}}><div style={{height:"100%",width:`${qs.maxScore>0?(qs.avgScore/qs.maxScore)*100:0}%`,background:scoreColor(qs.avgScore,qs.maxScore,dark),borderRadius:1}}/></div>}
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:textColor(dark,"secondary")}}>{qs.prompt}</span>{qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&<span style={{fontSize:12,fontWeight:600,color:scoreColor(qs.avgScore,qs.maxScore,dark)}}>{qs.avgScore}/{qs.maxScore}</span>}{(qs.type==="open_text"||qs.type==="text")&&<span style={{fontSize:10,color:textColor(dark,"tertiary")}}>{qs.count} responses</span>}</div>
+                    {qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&<div style={{height:4,background:dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.05)",borderRadius:1}}><div style={{height:"100%",width:`${qs.maxScore>0?(qs.avgScore/qs.maxScore)*100:0}%`,background:scoreColor(qs.avgScore,qs.maxScore,dark),borderRadius:1}}/></div>}
                     {qs.type==="multiple_choice"&&qs.optionCounts&&<div style={{display:"flex",gap:4,marginTop:2}}>{qs.optionCounts.map((oc)=>(<span key={oc.option} style={{fontSize:10,color:textColor(dark,"tertiary"),padding:"2px 6px",background:dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.03)",borderRadius:2}}>{oc.option}: {oc.count}</span>))}</div>}
                   </div>
                 ))}

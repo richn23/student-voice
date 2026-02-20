@@ -6,13 +6,14 @@ import {
   collection,
   getDocs,
   deleteDoc,
+  updateDoc,
   doc,
   query,
   orderBy,
   where,
 } from "firebase/firestore";
 import { useTheme } from "@/components/theme-provider";
-import { Plus, FileText, Users, ChevronRight, BarChart3, Sun, Moon, Search, Trash2, X } from "lucide-react";
+import { Plus, FileText, Users, ChevronRight, BarChart3, Sun, Moon, Search, Trash2, X, Archive, ArchiveRestore } from "lucide-react";
 
 interface SurveyItem {
   id: string;
@@ -188,6 +189,16 @@ export default function AdminPage() {
     } finally { setDeleting(false); }
   }
 
+  async function toggleArchive(surveyId: string) {
+    const survey = surveys.find((s) => s.id === surveyId);
+    if (!survey) return;
+    const newStatus = survey.status === "archived" ? "live" : "archived";
+    try {
+      await updateDoc(doc(db, "surveys", surveyId), { status: newStatus });
+      setSurveys((prev) => prev.map((s) => s.id === surveyId ? { ...s, status: newStatus } : s));
+    } catch (err) { console.error("Archive failed:", err); }
+  }
+
   // Filtered surveys
   const filteredSurveys = surveys.filter((s) => {
     if (statusFilter !== "all" && s.status !== statusFilter) return false;
@@ -203,7 +214,7 @@ export default function AdminPage() {
 
   const stats = [
     { key: "surveys", label: "Surveys", value: surveys.length, meta: `${surveys.filter((s) => s.status === "live").length} live`, icon: <FileText size={16} /> },
-    { key: "responses", label: "Responses", value: totalSessions, meta: `${totalCompleted} completed`, icon: <Users size={16} /> },
+    { key: "responses", label: "Responses", value: totalCompleted, meta: `${totalSessions} opened · ${totalSessions>0?Math.round((totalCompleted/totalSessions)*100):0}% completion`, icon: <Users size={16} /> },
     { key: "thisweek", label: "This Week", value: surveys.reduce((sum, s) => sum + s.thisWeekCount, 0), meta: "responses in last 7 days", icon: <BarChart3 size={16} /> },
   ];
 
@@ -417,17 +428,32 @@ export default function AdminPage() {
                         )}
                       </div>
                     </a>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArchive(survey.id); }}
+                        title={survey.status === "archived" ? "Restore survey" : "Archive survey"}
+                        style={{
+                          padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
+                          background: "none", border: `1px solid ${dark ? "#333" : "#d4d4d4"}`, borderRadius: 2,
+                          cursor: "pointer", color: textColor(dark, "tertiary"), fontSize: 11, fontWeight: 600,
+                          fontFamily: "inherit", transition: "all 0.15s",
+                        }}
+                      >
+                        {survey.status === "archived" ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                        {survey.status === "archived" ? "Restore" : "Archive"}
+                      </button>
                       <button
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(survey); }}
                         title="Delete survey"
                         style={{
-                          width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center",
-                          background: "none", border: "none", cursor: "pointer", borderRadius: 2,
-                          color: textColor(dark, "tertiary"), opacity: isHovered ? 0.8 : 0, transition: "opacity 0.15s",
+                          padding: "5px 10px", display: "flex", alignItems: "center", gap: 5,
+                          background: "none", border: `1px solid ${dark ? "rgba(240,96,96,0.3)" : "rgba(192,57,43,0.2)"}`, borderRadius: 2,
+                          cursor: "pointer", color: dark ? "#f06060" : "#c0392b", fontSize: 11, fontWeight: 600,
+                          fontFamily: "inherit", transition: "all 0.15s",
                         }}
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={12} />
+                        Delete
                       </button>
                       <ChevronRight
                         size={16}
@@ -435,6 +461,7 @@ export default function AdminPage() {
                           color: textColor(dark, "tertiary"),
                           opacity: isHovered ? 0.8 : 0.3,
                           transition: "opacity 0.15s",
+                          marginLeft: 4,
                         }}
                       />
                     </div>
