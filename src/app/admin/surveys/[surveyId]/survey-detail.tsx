@@ -200,20 +200,27 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
     const allResps: ResponseData[] = []; filteredResponses.forEach((r) => allResps.push(...r)); const secs = computeSectionsFromResponses(allResps);
 
     let dataText = `SURVEY: "${survey?.title}"\n`;
-    dataText += `TOTAL SESSIONS: ${totalResponses}\n`;
-    dataText += `COMPLETED: ${completedCount}\n`;
-    dataText += `OVERALL SCORE: ${overallAvg}%\n\n`;
+    dataText += `SESSIONS OPENED: ${totalResponses}\n`;
+    dataText += `COMPLETED RESPONSES: ${completedCount}\n`;
+    if (avgTimeSeconds > 0) dataText += `AVG COMPLETION TIME: ${formatTime(avgTimeSeconds)}\n`;
+    dataText += `\n`;
 
     for (const sec of secs) {
       dataText += `SECTION: ${sec.sectionTitle}\n`;
-      if (sec.maxScore > 0) dataText += `  Section Average: ${sec.avgScore}/${sec.maxScore} (${Math.round((sec.avgScore/sec.maxScore)*100)}%)\n`;
       for (const qs of sec.questionScores) {
-        if (qs.type === "multiple_choice" && qs.optionCounts) {
-          dataText += `  Q: "${qs.prompt}" — ${qs.count} responses\n`;
+        if (qs.type === "scale") {
+          dataText += `  Q: "${qs.prompt}" [scale 0-${qs.maxScore}] — avg ${qs.avgScore}/${qs.maxScore} — ${qs.count} responses\n`;
+        } else if (qs.type === "slider") {
+          dataText += `  Q: "${qs.prompt}" [slider 0-${qs.maxScore}] — avg ${qs.avgScore}/${qs.maxScore} — ${qs.count} responses\n`;
+        } else if (qs.type === "nps") {
+          dataText += `  Q: "${qs.prompt}" [NPS 0-10] — avg ${qs.avgScore}/10 — ${qs.count} responses\n`;
+        } else if (qs.type === "multiple_choice" && qs.optionCounts) {
+          dataText += `  Q: "${qs.prompt}" [multiple choice] — ${qs.count} responses\n`;
           for (const oc of qs.optionCounts) dataText += `    - ${oc.option}: ${oc.count}\n`;
+        } else if (qs.type === "open_text" || qs.type === "text") {
+          dataText += `  Q: "${qs.prompt}" [open text] — ${qs.count} responses\n`;
         } else if (qs.maxScore > 0) {
-          const pct = Math.round((qs.avgScore / qs.maxScore) * 100);
-          dataText += `  Q: "${qs.prompt}" — avg ${qs.avgScore}/${qs.maxScore} (${pct}%) — ${qs.count} responses\n`;
+          dataText += `  Q: "${qs.prompt}" — avg ${qs.avgScore}/${qs.maxScore} — ${qs.count} responses\n`;
         }
       }
       if (sec.comments.length > 0) {
@@ -233,41 +240,32 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
 
     const dataText = buildDataSnapshot();
 
-    const systemPrompt = `You analyze student feedback survey data. You MUST follow these rules:
+    const systemPrompt = `You analyze student feedback survey data. Be precise and factual.
 
-RULE 1 - ONLY USE DATA PROVIDED:
-- Never invent, guess, or assume anything not in the data
-- If data is limited, say so clearly
-- Quote exact numbers from the data
+CRITICAL RULES:
+- Use EXACT numbers from the data. Never say "2-4 responses" — say the exact count for each question.
+- Do NOT create an "overall score" by mixing different question types together. Scale (0-5), slider (0-100), and NPS (0-10) are different measures and cannot be averaged into one number.
+- Report each question type's results separately with its own scale.
+- If fewer than 5 completed responses, state this is a very small sample and findings should be treated as preliminary.
 
-RULE 2 - RESPONSE COUNT CHECK:
-- If fewer than 5 responses: start with "⚠️ Low response count (X responses). These results may not be representative."
-- If 5-15 responses: note "Based on X responses — a small sample."
-- If 15+: just state the count
+STRUCTURE (use these exact headings):
 
-RULE 3 - STRUCTURE (use these exact headings):
-## Overview
-1-2 sentences. State response count, overall score, and one key takeaway.
+## Summary
+2-3 sentences: When the survey was conducted, how many people completed it out of how many who opened it, and whether the overall sentiment was positive, negative, or mixed. Be specific.
 
-## Highlights
-- Highest scoring areas (with exact scores)
-- Lowest scoring areas (with exact scores)
-- Any recurring themes in comments (quote them)
+## Section Results
+For EACH section, write 1-2 sentences summarizing what the data shows. Use the exact scores on their native scale (e.g. "3.3 out of 5" not "66%"). For multiple choice, state the most popular option(s). For open text, quote responses.
 
-## 🟢 Green Flags
-Things going well. Use exact scores/quotes.
+## Key Findings
+- 3-5 bullet points of the most important insights
+- Use exact numbers and quotes
+- Flag anything notably high or low
 
-## 🟠 Orange Flags  
-Areas to watch. Scores between 40-65% or mixed feedback.
+## Recommendations
+- 2-3 specific, actionable suggestions based on the data
+- Only recommend things the data actually supports
 
-## 🔴 Red Flags
-Concerns. Scores below 40% or negative comments.
-
-RULE 4 - KEEP IT SHORT:
-- Max 3 bullet points per section
-- Each bullet max 1-2 sentences
-- No filler language, no "overall", no "in general"
-- If a section has nothing to report, write "None identified from current data."`;
+TONE: Professional, concise, factual. No filler. No vague language.`;
 
     try {
       const res = await fetch("/api/chat", {
@@ -275,7 +273,7 @@ RULE 4 - KEEP IT SHORT:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           system: systemPrompt,
-          messages: [{ role: "user", content: `Here is the survey data. Analyze it:\n\n${dataText}` }],
+          messages: [{ role: "user", content: `Analyze this survey data:\n\n${dataText}` }],
           max_tokens: 1024,
         }),
       });
@@ -693,9 +691,16 @@ ${dataText}`;
           chk(8);
           pdf.setDrawColor(...BLUE); pdf.setLineWidth(0.3); pdf.line(M+4, y-2, M+4, y+3);
           pdf.setFontSize(7); pdf.setTextColor(85,85,85);
-          const lines = pdf.splitTextToSize(`"${c}"`, CW - 12);
+          const commentText = typeof c === "string" ? c : c.text;
+          const lines = pdf.splitTextToSize(`"${commentText}"`, CW - 12);
           pdf.text(lines, M+7, y);
           y += lines.length * 3.5 + 2;
+          if (typeof c !== "string" && c.original) {
+            pdf.setFontSize(6); pdf.setTextColor(...GRAY);
+            const origLines = pdf.splitTextToSize(`Original: "${c.original}"`, CW - 14);
+            pdf.text(origLines, M+7, y);
+            y += origLines.length * 3 + 1;
+          }
         }
         if (sec.comments.length > 5) {
           pdf.setFontSize(7); pdf.setTextColor(...GRAY);
@@ -703,6 +708,42 @@ ${dataText}`;
         }
       }
       y += 10;
+    }
+
+    // ═══ AI SUMMARY PAGE (if available) ═══
+    if (aiSummary) {
+      ftr(); pdf.addPage(); pageNum++; y = hdr(pageNum);
+      pdf.setFontSize(16); pdf.setTextColor(...BLK); pdf.text("Analysis & Recommendations", M, y);
+      pdf.setDrawColor(...BLUE); pdf.setLineWidth(0.5);
+      pdf.line(M, y+2, M + pdf.getTextWidth("Analysis & Recommendations"), y+2);
+      y += 12;
+
+      const summaryLines = aiSummary.split("\n");
+      for (const line of summaryLines) {
+        const trimmed = line.trim();
+        if (!trimmed) { y += 3; continue; }
+        if (trimmed.startsWith("## ")) {
+          chk(14); y += 4;
+          pdf.setFontSize(11); pdf.setTextColor(...BLUE);
+          pdf.text(trimmed.replace("## ", ""), M, y);
+          y += 7;
+        } else if (trimmed.startsWith("- ")) {
+          chk(8);
+          pdf.setFillColor(...BLUE); pdf.circle(M+3, y-1, 0.8, "F");
+          pdf.setFontSize(8); pdf.setTextColor(60,60,60);
+          const bulletText = trimmed.slice(2).replace(/\*\*/g, "");
+          const wrapped = pdf.splitTextToSize(bulletText, CW - 10);
+          pdf.text(wrapped, M+7, y);
+          y += wrapped.length * 4 + 2;
+        } else {
+          chk(8);
+          pdf.setFontSize(8); pdf.setTextColor(60,60,60);
+          const plainText = trimmed.replace(/\*\*/g, "");
+          const wrapped = pdf.splitTextToSize(plainText, CW);
+          pdf.text(wrapped, M, y);
+          y += wrapped.length * 4 + 2;
+        }
+      }
     }
 
     ftr();

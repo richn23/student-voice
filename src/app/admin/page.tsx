@@ -214,7 +214,7 @@ export default function AdminPage() {
 
   const stats = [
     { key: "surveys", label: "Surveys", value: surveys.length, meta: `${surveys.filter((s) => s.status === "live").length} live`, icon: <FileText size={16} /> },
-    { key: "responses", label: "Responses", value: totalCompleted, meta: `${totalSessions} opened · ${totalSessions>0?Math.round((totalCompleted/totalSessions)*100):0}% completion`, icon: <Users size={16} /> },
+    { key: "responses", label: "Responses", value: totalCompleted, meta: `${totalSessions} opened · ${totalSessions > 0 ? Math.round((totalCompleted / totalSessions) * 100) : 0}% completion`, icon: <Users size={16} /> },
     { key: "thisweek", label: "This Week", value: surveys.reduce((sum, s) => sum + s.thisWeekCount, 0), meta: "responses in last 7 days", icon: <BarChart3 size={16} /> },
   ];
 
@@ -419,13 +419,7 @@ export default function AdminPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: textColor(dark, "tertiary") }}>
                         <span>Created {formatDate(survey.createdAt)}</span>
                         <span>·</span>
-                        <span>{survey.sessionCount} response{survey.sessionCount !== 1 ? "s" : ""}</span>
-                        {survey.sessionCount > 0 && (
-                          <>
-                            <span>·</span>
-                            <span>{Math.round((survey.completedCount / survey.sessionCount) * 100)}% completed</span>
-                          </>
-                        )}
+                        <span>{survey.completedCount} response{survey.completedCount !== 1 ? "s" : ""}</span>
                       </div>
                     </a>
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
