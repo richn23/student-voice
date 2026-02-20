@@ -98,6 +98,13 @@ export function SurveyRunner({ token }: { token: string }) {
   const [langSearch, setLangSearch] = useState("");
   const [customLang, setCustomLang] = useState("");
   const [showOtherInput, setShowOtherInput] = useState(false);
+  const [uiStrings, setUiStrings] = useState<Record<string, string>>({
+    sections: "sections", questions: "questions", toComplete: "to complete",
+    begin: "Begin →", continue: "Continue →", submit: "Submit →", back: "← Back",
+    thankYou: "Thank you", powered: "Powered by Student Voice",
+    shareThoughts: "Share your thoughts...", selectAll: "Select all that apply",
+    sectionOf: "of", section: "Section",
+  });
 
   useEffect(() => {
     loadSurvey();
@@ -176,6 +183,15 @@ export function SurveyRunner({ token }: { token: string }) {
         const langLabel = LANGUAGES.find((l) => l.code === lang)?.label || lang;
         const textsToTranslate: { key: string; text: string }[] = [];
 
+        // Survey meta
+        if (survey?.title) textsToTranslate.push({ key: "meta_title", text: survey.title });
+        if (survey?.intro) textsToTranslate.push({ key: "meta_intro", text: survey.intro });
+        if (survey?.completionMessage) textsToTranslate.push({ key: "meta_completion", text: survey.completionMessage });
+
+        // UI strings
+        const uiKeys = ["sections", "questions", "to complete", "Begin →", "Continue →", "Submit →", "← Back", "Thank you", "Powered by Student Voice", "Share your thoughts...", "Select all that apply", "Section", "of"];
+        uiKeys.forEach((text, i) => textsToTranslate.push({ key: `ui_${i}`, text }));
+
         // Collect section titles
         sections.forEach((sec, si) => {
           if (sec.title.en && !sec.title[lang]) {
@@ -206,22 +222,35 @@ export function SurveyRunner({ token }: { token: string }) {
           const data = await res.json();
           if (data.text) {
             const lines = data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean);
+            const translatedSurvey = { ...survey! };
+            const newUi = { ...uiStrings };
             const updatedSections = [...sections];
+
             textsToTranslate.forEach((item, i) => {
-              if (lines[i]) {
-                if (item.key.startsWith("sec_")) {
-                  const si = parseInt(item.key.split("_")[1]);
-                  updatedSections[si].title[lang] = lines[i];
-                } else if (item.key.startsWith("q_")) {
-                  const qId = item.key.slice(2);
-                  updatedSections.forEach((sec) => {
-                    sec.questions.forEach((q) => {
-                      if (q.id === qId) q.prompt[lang] = lines[i];
-                    });
+              if (!lines[i]) return;
+              if (item.key === "meta_title") translatedSurvey.title = lines[i];
+              else if (item.key === "meta_intro") translatedSurvey.intro = lines[i];
+              else if (item.key === "meta_completion") translatedSurvey.completionMessage = lines[i];
+              else if (item.key.startsWith("ui_")) {
+                const uiIdx = parseInt(item.key.split("_")[1]);
+                const uiMap = ["sections", "questions", "toComplete", "begin", "continue", "submit", "back", "thankYou", "powered", "shareThoughts", "selectAll", "section", "sectionOf"];
+                if (uiMap[uiIdx]) newUi[uiMap[uiIdx]] = lines[i];
+              }
+              else if (item.key.startsWith("sec_")) {
+                const si = parseInt(item.key.split("_")[1]);
+                updatedSections[si].title[lang] = lines[i];
+              } else if (item.key.startsWith("q_")) {
+                const qId = item.key.slice(2);
+                updatedSections.forEach((sec) => {
+                  sec.questions.forEach((q) => {
+                    if (q.id === qId) q.prompt[lang] = lines[i];
                   });
-                }
+                });
               }
             });
+
+            setSurvey(translatedSurvey);
+            setUiStrings(newUi);
             setSections(updatedSections);
           }
         }
@@ -250,6 +279,43 @@ export function SurveyRunner({ token }: { token: string }) {
     if (!sessionId) return;
 
     const sec = sections[sectionIdx];
+
+    // Collect open text answers that need translation
+    const textsToTranslate: { qId: string; text: string }[] = [];
+    if (language !== "en") {
+      for (const q of sec.questions) {
+        if ((q.type === "open_text" || q.type === "text") && answers[q.id]?.trim()) {
+          textsToTranslate.push({ qId: q.id, text: answers[q.id].trim() });
+        }
+      }
+    }
+
+    // Batch translate if needed
+    const translations = new Map<string, string>();
+    if (textsToTranslate.length > 0) {
+      try {
+        const numbered = textsToTranslate.map((t, i) => `${i + 1}. ${t.text}`).join("\n");
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fast: true,
+            system: "Translate each numbered line to English. Return ONLY the English translations, one per line, numbered the same way. Do not add anything else.",
+            messages: [{ role: "user", content: numbered }],
+          }),
+        });
+        const data = await res.json();
+        if (data.text) {
+          const lines = data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean);
+          textsToTranslate.forEach((item, i) => {
+            if (lines[i]) translations.set(item.qId, lines[i]);
+          });
+        }
+      } catch (err) {
+        console.error("Translation error (non-blocking):", err);
+      }
+    }
+
     // Save all responses for this section
     for (const q of sec.questions) {
       let responseData: any = {
@@ -281,8 +347,13 @@ export function SurveyRunner({ token }: { token: string }) {
         }
       } else if (q.type === "open_text" || q.type === "text") {
         const text = answers[q.id] || "";
-        responseData.response = { text };
-        responseData.responseText = text || null;
+        const englishText = translations.get(q.id);
+        responseData.response = { text, ...(englishText ? { textEnglish: englishText } : {}) };
+        responseData.responseText = englishText || text || null;
+        if (englishText && text !== englishText) {
+          responseData.responseOriginal = text;
+          responseData.responseLanguage = language;
+        }
       }
 
       await addDoc(collection(db, `sessions/${sessionId}/responses`), responseData);
@@ -609,9 +680,9 @@ export function SurveyRunner({ token }: { token: string }) {
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 32 }}>
                 {[
-                  { val: sections.length, label: "sections" },
-                  { val: totalQ, label: "questions" },
-                  { val: "~5m", label: "to complete" },
+                  { val: sections.length, label: uiStrings.sections },
+                  { val: totalQ, label: uiStrings.questions },
+                  { val: "~5m", label: uiStrings.toComplete },
                 ].map((s) => (
                   <div key={s.label} style={{
                     padding: "16px 8px", background: "rgba(0,0,0,0.02)",
@@ -623,7 +694,7 @@ export function SurveyRunner({ token }: { token: string }) {
                 ))}
               </div>
 
-              <OrangeButton onClick={startSurvey} label="Begin →" />
+              <OrangeButton onClick={startSurvey} label={uiStrings.begin} />
             </div>
           </GlassCard>
         </div>
@@ -642,7 +713,7 @@ export function SurveyRunner({ token }: { token: string }) {
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 16, padding: "0 4px" }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#E8723A", marginBottom: 4 }}>
-                Section {sectionIdx + 1} of {sections.length}
+                {uiStrings.section} {sectionIdx + 1} {uiStrings.sectionOf} {sections.length}
               </div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>
                 {t(currentSection.title)}
@@ -771,7 +842,7 @@ export function SurveyRunner({ token }: { token: string }) {
                 {q.type === "multiple_choice" && (
                   <div style={{ paddingLeft: 32, display: "flex", flexDirection: "column", gap: 6 }}>
                     {q.config?.selectMode === "multi" && (
-                      <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>Select all that apply</div>
+                      <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>{uiStrings.selectAll}</div>
                     )}
                     {(q.config?.options || []).map((opt, oi) => {
                       const isMulti = q.config?.selectMode === "multi";
@@ -805,7 +876,7 @@ export function SurveyRunner({ token }: { token: string }) {
                 {(q.type === "open_text" || q.type === "text") && (
                   <div style={{ paddingLeft: 32 }}>
                     <textarea
-                      placeholder="Share your thoughts..."
+                      placeholder={uiStrings.shareThoughts}
                       value={answers[q.id] || ""}
                       onChange={(e) => setAnswer(q.id, e.target.value)}
                       style={{
@@ -834,10 +905,10 @@ export function SurveyRunner({ token }: { token: string }) {
                 background: "rgba(255,255,255,0.6)", backdropFilter: "blur(12px)",
                 color: "#666", fontSize: 14, fontWeight: 600, cursor: "pointer",
                 fontFamily: "'DM Sans', system-ui, sans-serif",
-              }}>← Back</button>
+              }}>{uiStrings.back}</button>
             )}
             <div style={{ flex: 1 }}>
-              <OrangeButton onClick={saveAndNext} label={sectionIdx < sections.length - 1 ? "Continue →" : "Submit →"} fullWidth />
+              <OrangeButton onClick={saveAndNext} label={sectionIdx < sections.length - 1 ? uiStrings.continue : uiStrings.submit} fullWidth />
             </div>
           </div>
         </div>
@@ -867,7 +938,7 @@ export function SurveyRunner({ token }: { token: string }) {
               </div>
 
               <h2 style={{ fontSize: 26, fontWeight: 700, color: "#1a1a1a", margin: "0 0 10px", letterSpacing: "-0.02em" }}>
-                Thank you
+                {uiStrings.thankYou}
               </h2>
               <p style={{ fontSize: 15, color: "#777", margin: 0, lineHeight: 1.7 }}>
                 {survey?.completionMessage || "Your feedback helps us improve. Thank you for taking the time!"}
@@ -885,7 +956,7 @@ export function SurveyRunner({ token }: { token: string }) {
                 }}>
                   <span style={{ color: "#fff", fontSize: 8, fontWeight: 800 }}>SV</span>
                 </div>
-                <span style={{ fontSize: 12, color: "#bbb", fontWeight: 500 }}>Powered by Student Voice</span>
+                <span style={{ fontSize: 12, color: "#bbb", fontWeight: 500 }}>{uiStrings.powered}</span>
               </div>
             </div>
           </GlassCard>
