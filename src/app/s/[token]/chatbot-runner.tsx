@@ -262,8 +262,12 @@ export function ChatbotRunner({ token }: { token: string }) {
       if (q.type === "slider") desc += ` — number ${q.config?.min || 0} to ${q.config?.max || 100}`;
       if (q.type === "nps") desc += ` — number 0 to 10`;
       if (q.type === "multiple_choice") {
-        desc += ` — choices: ${(q.config?.options || []).join(", ")}`;
-        if (q.config?.selectMode === "multi") desc += ` [MULTI-SELECT: student can pick MORE THAN ONE]`;
+        const opts = (q.config?.options || []).join("|");
+        if (q.config?.selectMode === "multi") {
+          desc += ` — MUST include: <multichoices>${opts}</multichoices>`;
+        } else {
+          desc += ` — MUST include: <choices>${opts}</choices>`;
+        }
       }
       if (q.type === "open_text") desc += ` — ask them to write`;
       desc += ` [Keep the SAME topic/meaning as the prompt - rephrase slightly in simple A2 English but do NOT change what the question is asking about. If it says "breakfast" ask about breakfast, not "today".]`;
@@ -292,15 +296,16 @@ BAD examples (NEVER do this):
 
 TONE: ${toneInstructions[tone] || toneInstructions.friendly}
 
-HOW TO ASK:
-- For scale scores: write your question, then on a NEW line add: <widget type="scale" min="0" max="3" />
-- For slider: write your question, then: <widget type="slider" min="0" max="100" />
-- For NPS (0-10): write your question, then: <widget type="nps" min="0" max="10" />
-- For choices (single select): write your question, then: <choices>Option A|Option B|Option C</choices>
-- For choices (multi select): write your question, then: <multichoices>Option A|Option B|Option C</multichoices>
-- For open text: just ask "What do you think?" or "Tell me more" (no widget needed, they type)
+HOW TO ASK — FOLLOW EXACTLY:
+- scale: question text, then NEW line: <widget type="scale" min="0" max="3" />
+- slider: question text, then: <widget type="slider" min="0" max="100" />
+- NPS: question text, then: <widget type="nps" min="0" max="10" />
+- single choice: question text, then: <choices>Option A|Option B</choices>
+- multi choice: question text, then: <multichoices>Option A|Option B</multichoices>
+- open text: just ask the question (no tag needed)
+- CRITICAL: For multiple_choice questions you MUST copy the exact <choices> or <multichoices> tag from the question description. Never ask a multiple_choice question without the choices/multichoices tag.
 - After ALL questions done: "Thank you! Bye! 😊"
-- IMPORTANT: Do NOT write "(0-3)" or "(0-100)" in the text. The widget handles the input.
+- Do NOT write "(0-3)" or "(0-100)" in the text. The widget handles the input.
 
 RESPONSE FORMAT:
 After each student response, output a hidden tag with the parsed answer:
@@ -338,6 +343,7 @@ IMPORTANT:
         body: JSON.stringify({
           system: systemPrompt,
           messages: [{ role: "user", content: `[System: The student just started. Say hello in ${langName} and ask the first question. Keep it very short and simple. The survey is "${sData.title}"]` }],
+          fast: true,
         }),
       });
 
@@ -381,7 +387,7 @@ IMPORTANT:
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, messages: apiMessages }),
+        body: JSON.stringify({ system: systemPrompt, messages: apiMessages, fast: true }),
       });
 
       const data = await res.json();
@@ -527,7 +533,7 @@ IMPORTANT:
     fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system: systemPrompt, messages: apiMessages }),
+      body: JSON.stringify({ system: systemPrompt, messages: apiMessages, fast: true }),
     })
       .then((res) => res.json())
       .then(async (data) => {
@@ -753,7 +759,7 @@ IMPORTANT:
   return (
     <div style={containerStyle}>
       {/* Progress bar */}
-      <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 3, background: "rgba(0,0,0,0.06)", zIndex: 100 }}>
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 3, background: "rgba(0,0,0,0.06)", zIndex: 100, marginTop: "env(safe-area-inset-top, 0px)" }}>
         <div style={{
           height: "100%", width: `${progress}%`,
           background: `linear-gradient(90deg, ${ORANGE}, ${ORANGE_LIGHT})`,
@@ -764,9 +770,11 @@ IMPORTANT:
 
       {/* Header */}
       <div style={{
-        padding: "12px 20px", display: "flex", alignItems: "center", gap: 10,
+        padding: "12px 20px", paddingTop: "calc(12px + env(safe-area-inset-top, 0px))",
+        display: "flex", alignItems: "center", gap: 10,
         background: "rgba(255,255,255,0.5)", backdropFilter: "blur(20px)",
         borderBottom: "1px solid rgba(0,0,0,0.06)",
+        position: "sticky", top: 0, zIndex: 50,
       }}>
         <div style={{
           width: 36, height: 36, borderRadius: "50%",
@@ -835,20 +843,20 @@ IMPORTANT:
             {/* NPS widget — row of 0-10 buttons */}
             {msg.widget && msg.widget.type === "nps" && (
               <div style={{ marginBottom: 10, paddingLeft: 4, animation: "fadeSlide 0.3s ease" }}>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(11, 1fr)", gap: 3, maxWidth: 340 }}>
                   {Array.from({ length: 11 }, (_, j) => j).map((n) => {
                     const clr = n <= 6 ? "#e74c3c" : n <= 8 ? ORANGE : "#27ae60";
                     return (
                     <button key={n} onClick={() => sendValue(n)} disabled={isTyping}
                       style={{
-                        width: 36, height: 36, fontSize: 13, fontWeight: 700, fontFamily: "inherit",
-                        borderRadius: 10, border: "none",
+                        height: 32, fontSize: 11, fontWeight: 700, fontFamily: "inherit",
+                        borderRadius: 8, border: "none",
                         background: clr,
                         color: "#fff",
                         cursor: isTyping ? "default" : "pointer", transition: "all 0.15s",
                         boxShadow: `0 2px 6px ${clr}44`,
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        opacity: 0.85,
+                        opacity: 0.85, padding: 0,
                       }}
                       onMouseEnter={(e) => { if (!isTyping) { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1.1)"; }}}
                       onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.transform = "scale(1)"; }}

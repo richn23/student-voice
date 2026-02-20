@@ -9,9 +9,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { messages, system, max_tokens } = body;
+    const { messages, system, max_tokens, fast } = body;
 
-    const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+    const defaultModel = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+    const model = fast ? "claude-haiku-4-5-20251001" : defaultModel;
     // Cap max_tokens — chatbot=256, summaries can be higher
     const tokens = Math.min(max_tokens || 256, 1500);
 
