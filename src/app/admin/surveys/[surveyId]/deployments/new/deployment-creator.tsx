@@ -24,6 +24,7 @@ import {
   MessageSquare,
   ClipboardList,
   ExternalLink,
+  Share2,
 } from "lucide-react";
 
 // ─── Style helpers ───
@@ -431,6 +432,18 @@ export function DeploymentCreator({ surveyId }: { surveyId: string }) {
                 <p style={{ fontSize: 11, color: textColor(dark, "tertiary"), marginTop: 8 }}>
                   Students can scan this to open the survey
                 </p>
+
+                {/* Share button - coming soon */}
+                <button disabled title="Share — Coming Soon" style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  margin: "16px auto 0", padding: "10px 24px", borderRadius: 2,
+                  border: `1px solid ${dark ? "#333" : "#d4d4d4"}`,
+                  background: dark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.6)",
+                  color: textColor(dark, "tertiary"), fontSize: 13, fontWeight: 600,
+                  fontFamily: "inherit", cursor: "default", opacity: 0.5,
+                }}>
+                  <Share2 size={14} /> Share — Coming Soon
+                </button>
               </div>
             </div>
 

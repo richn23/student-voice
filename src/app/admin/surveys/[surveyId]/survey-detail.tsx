@@ -779,8 +779,8 @@ ${dataText}`;
           {tabs.map((tab)=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{display:"flex",alignItems:"center",gap:6,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:"pointer",border:"none",background:"transparent",fontFamily:"inherit",transition:"all 0.15s",color:activeTab===tab.key?accentBg(dark):textColor(dark,"tertiary"),borderBottom:activeTab===tab.key?`2px solid ${accentBg(dark)}`:"2px solid transparent",marginBottom:-1}}>{tab.icon} {tab.label}</button>))}
         </div>
 
-        {/* Deployment filter */}
-        {deployments.length > 1 && (
+        {/* Deployment filter - hide on Compare tab */}
+        {deployments.length > 1 && activeTab !== "compare" && (
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20}}>
             <span style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>Showing</span>
             <select
