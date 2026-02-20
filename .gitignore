@@ -1,0 +1,8 @@
+node_modules
+.next
+.env*.local
+.vercel
+Firebasekey.json
+Firebase Info.txt
+*.tsbuildinfo
+next-env.d.ts

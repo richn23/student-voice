@@ -1,0 +1,219 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+
+/* ========================
+   LIGHT MODE (default)
+   ======================== */
+:root {
+  --bg-base: #eaeef2;
+  --bg-surface: rgba(255, 255, 255, 0.55);
+  --bg-surface-hover: rgba(255, 255, 255, 0.75);
+  --bg-solid: #ffffff;
+  --bg-subtle: #f0f0f0;
+  --border: rgba(255, 255, 255, 0.4);
+  --border-solid: #d4d4d4;
+  --border-hover: rgba(0, 120, 212, 0.3);
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #555555;
+  --text-tertiary: #8a8a8a;
+  --text-inverse: #ffffff;
+
+  --accent: #0078d4;
+  --accent-hover: #106ebe;
+  --accent-subtle: #e8f1fb;
+  --accent-text: #0078d4;
+
+  --status-live-bg: #dff5e3;
+  --status-live-text: #1e7a2e;
+  --status-live-border: #b8e6c0;
+  --status-draft-bg: #fff3e0;
+  --status-draft-text: #c75300;
+  --status-draft-border: #ffd699;
+  --status-archived-bg: #f0f0f0;
+  --status-archived-text: #8a8a8a;
+  --status-archived-border: #d4d4d4;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --radius: 2px;
+
+  --gradient: 
+    radial-gradient(ellipse at 15% 60%, rgba(0, 120, 212, 0.10) 0%, transparent 50%),
+    radial-gradient(ellipse at 75% 15%, rgba(0, 120, 212, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 90%, rgba(100, 180, 255, 0.05) 0%, transparent 40%);
+}
+
+/* ========================
+   DARK MODE
+   ======================== */
+.dark {
+  --bg-base: #141414;
+  --bg-surface: rgba(255, 255, 255, 0.05);
+  --bg-surface-hover: rgba(255, 255, 255, 0.09);
+  --bg-solid: #1e1e1e;
+  --bg-subtle: #1a1a1a;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-solid: #333333;
+  --border-hover: rgba(77, 166, 255, 0.3);
+
+  --text-primary: #eaeaea;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #606060;
+  --text-inverse: #141414;
+
+  --accent: #4da6ff;
+  --accent-hover: #3d96ef;
+  --accent-subtle: #1a3a5c;
+  --accent-text: #4da6ff;
+
+  --status-live-bg: #162e1a;
+  --status-live-text: #5dbe68;
+  --status-live-border: #2a4d2e;
+  --status-draft-bg: #332414;
+  --status-draft-text: #f0a050;
+  --status-draft-border: #4d3820;
+  --status-archived-bg: #222222;
+  --status-archived-text: #606060;
+  --status-archived-border: #333333;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  --gradient:
+    radial-gradient(ellipse at 15% 60%, rgba(77, 166, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 75% 15%, rgba(77, 166, 255, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 90%, rgba(40, 100, 200, 0.04) 0%, transparent 40%);
+}
+
+/* ========================
+   BASE
+   ======================== */
+body {
+  font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg-base);
+  background-image: var(--gradient);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ========================
+   UTILITIES
+   ======================== */
+
+/* Glass card - with hover */
+.glass {
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s ease;
+}
+
+.glass:hover {
+  background: var(--bg-surface-hover);
+  box-shadow: var(--shadow-md);
+}
+
+/* Glass card - no hover */
+.glass-static {
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Solid surface (headers, nav) */
+.surface-solid {
+  background: var(--bg-solid);
+  border-bottom: 1px solid var(--border-solid);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dark .surface-solid {
+  background: rgba(30, 30, 30, 0.85);
+}
+
+/* Status badges */
+.badge-live {
+  background: var(--status-live-bg);
+  color: var(--status-live-text);
+  border: 1px solid var(--status-live-border);
+}
+
+.badge-draft {
+  background: var(--status-draft-bg);
+  color: var(--status-draft-text);
+  border: 1px solid var(--status-draft-border);
+}
+
+.badge-archived {
+  background: var(--status-archived-bg);
+  color: var(--status-archived-text);
+  border: 1px solid var(--status-archived-border);
+}
+
+/* Accent button */
+.btn-accent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.btn-accent:hover {
+  background: var(--accent-hover);
+}
+
+/* Icon button */
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-solid);
+  background: var(--bg-surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+}
+
+.btn-icon:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+/* Micro label */
+.micro-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
