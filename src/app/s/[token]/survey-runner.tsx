@@ -73,7 +73,7 @@ interface QuestionData {
 
 interface SectionGroup {
   key: string;
-  title: string;
+  title: Record<string, string>;
   questions: QuestionData[];
 }
 
@@ -144,7 +144,7 @@ export function SurveyRunner({ token }: { token: string }) {
       const sectionMap = new Map<string, SectionGroup>();
       for (const q of allQuestions) {
         const key = q.sectionId || q.section || "default";
-        const title = q.sectionTitle?.en || q.section || "Questions";
+        const title = q.sectionTitle || { en: q.section || "Questions" };
         if (!sectionMap.has(key)) {
           sectionMap.set(key, { key, title, questions: [] });
         }
@@ -169,6 +169,66 @@ export function SurveyRunner({ token }: { token: string }) {
   async function startSession(lang: string) {
     if (!deployment) return;
     setLanguage(lang);
+
+    // Translate content if non-English
+    if (lang !== "en") {
+      try {
+        const langLabel = LANGUAGES.find((l) => l.code === lang)?.label || lang;
+        const textsToTranslate: { key: string; text: string }[] = [];
+
+        // Collect section titles
+        sections.forEach((sec, si) => {
+          if (sec.title.en && !sec.title[lang]) {
+            textsToTranslate.push({ key: `sec_${si}`, text: sec.title.en });
+          }
+        });
+
+        // Collect question prompts
+        sections.forEach((sec) => {
+          sec.questions.forEach((q) => {
+            if (q.prompt.en && !q.prompt[lang]) {
+              textsToTranslate.push({ key: `q_${q.id}`, text: q.prompt.en });
+            }
+          });
+        });
+
+        if (textsToTranslate.length > 0) {
+          const numbered = textsToTranslate.map((t, i) => `${i + 1}. ${t.text}`).join("\n");
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fast: true,
+              system: `Translate each numbered line to ${langLabel}. Return ONLY the translations, one per line, numbered the same way. Keep it simple (A2/B1 level). Do not add anything else.`,
+              messages: [{ role: "user", content: numbered }],
+            }),
+          });
+          const data = await res.json();
+          if (data.text) {
+            const lines = data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean);
+            const updatedSections = [...sections];
+            textsToTranslate.forEach((item, i) => {
+              if (lines[i]) {
+                if (item.key.startsWith("sec_")) {
+                  const si = parseInt(item.key.split("_")[1]);
+                  updatedSections[si].title[lang] = lines[i];
+                } else if (item.key.startsWith("q_")) {
+                  const qId = item.key.slice(2);
+                  updatedSections.forEach((sec) => {
+                    sec.questions.forEach((q) => {
+                      if (q.id === qId) q.prompt[lang] = lines[i];
+                    });
+                  });
+                }
+              }
+            });
+            setSections(updatedSections);
+          }
+        }
+      } catch (err) {
+        console.error("Translation error (non-blocking):", err);
+      }
+    }
 
     const versionId = deployment.versionId || deployment.surveyVersionId || "";
     const sessionRef = await addDoc(collection(db, "sessions"), {
@@ -585,7 +645,7 @@ export function SurveyRunner({ token }: { token: string }) {
                 Section {sectionIdx + 1} of {sections.length}
               </div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#1a1a1a", letterSpacing: "-0.02em" }}>
-                {currentSection.title}
+                {t(currentSection.title)}
               </div>
             </div>
             <div style={{ display: "flex", gap: 5, paddingBottom: 6 }}>
@@ -685,23 +745,24 @@ export function SurveyRunner({ token }: { token: string }) {
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(11, 1fr)", gap: 4 }}>
                       {Array.from({ length: 11 }, (_, i) => {
                         const selected = answers[q.id] === i;
+                        const clr = i <= 6 ? "#e74c3c" : i <= 8 ? "#E8723A" : "#27ae60";
                         return (
                           <button key={i} onClick={() => setAnswer(q.id, i)} style={{
                             padding: "12px 0", borderRadius: 8, border: "none",
                             fontSize: 13, fontWeight: 700, cursor: "pointer",
                             fontFamily: "'DM Sans', system-ui, sans-serif",
                             transition: "all 0.2s ease",
-                            background: selected ? "linear-gradient(135deg, #E8723A, #F4A261)" : "rgba(0,0,0,0.035)",
-                            color: selected ? "#fff" : "#777",
-                            boxShadow: selected ? "0 4px 12px rgba(232,114,58,0.25)" : "none",
+                            background: selected ? clr : `${clr}18`,
+                            color: selected ? "#fff" : clr,
+                            boxShadow: selected ? `0 4px 12px ${clr}44` : "none",
                             transform: selected ? "scale(1.1)" : "scale(1)",
                           }}>{i}</button>
                         );
                       })}
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-                      <span style={{ fontSize: 10, color: "#aaa", fontWeight: 500 }}>{q.config?.lowLabel || "Not likely"}</span>
-                      <span style={{ fontSize: 10, color: "#aaa", fontWeight: 500 }}>{q.config?.highLabel || "Very likely"}</span>
+                      <span style={{ fontSize: 10, color: "#e74c3c", fontWeight: 500 }}>{q.config?.lowLabel || "Not likely"}</span>
+                      <span style={{ fontSize: 10, color: "#27ae60", fontWeight: 500 }}>{q.config?.highLabel || "Very likely"}</span>
                     </div>
                   </div>
                 )}

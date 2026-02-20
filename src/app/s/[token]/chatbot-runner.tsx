@@ -451,6 +451,27 @@ IMPORTANT:
       } else if (type === "open_text") {
         responseData.response = { text: value };
         responseData.responseText = value;
+        // Translate to English if non-English
+        if (language !== "en" && value.trim()) {
+          try {
+            const tRes = await fetch("/api/chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fast: true,
+                system: "Translate the following text to English. Return ONLY the translation, nothing else.",
+                messages: [{ role: "user", content: value }],
+              }),
+            });
+            const tData = await tRes.json();
+            if (tData.text?.trim()) {
+              responseData.responseText = tData.text.trim();
+              responseData.responseOriginal = value;
+              responseData.responseLanguage = language;
+              responseData.response.textEnglish = tData.text.trim();
+            }
+          } catch {}
+        }
       }
 
       try {

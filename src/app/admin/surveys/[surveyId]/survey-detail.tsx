@@ -4,15 +4,16 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, query, where, orderBy } from "firebase/firestore";
 import { useTheme } from "@/components/theme-provider";
-import { Sun, Moon, Users, BarChart3, Clock, MessageSquare, Link2, ChevronDown, ChevronUp, Plus, ClipboardList, ExternalLink, Sparkles, ArrowUp, ArrowDown, Minus, GitCompareArrows, Download, FileText, Share2, Mail } from "lucide-react";
+import { Sun, Moon, Users, BarChart3, Clock, MessageSquare, Link2, ChevronDown, ChevronUp, Plus, ClipboardList, ExternalLink, Sparkles, ArrowUp, ArrowDown, Minus, GitCompareArrows, Download, FileText, Share2, Mail, Edit3 } from "lucide-react";
 
 interface SurveyData { title: string; status: string; createdAt: Date; }
 interface QuestionData { id: string; qKey: string; type: string; prompt: Record<string,string>; section?: string; sectionId?: string; sectionTitle?: Record<string,string>; order: number; required?: boolean; config?: { min?: number; max?: number; lowLabel?: string; highLabel?: string; options?: string[]; selectMode?: string; }; }
 interface DeploymentData { id: string; token: string; label: string; campus?: string; status: string; deliveryMode?: string; createdAt: Date; }
 interface SessionData { id: string; deploymentId: string; language: string; completedAt: Date | null; startedAt: Date; }
-interface ResponseData { questionId: string; qKey: string; type: string; score: number | null; responseText: string | null; response: Record<string,any>; }
+interface ResponseData { questionId: string; qKey: string; type: string; score: number | null; responseText: string | null; responseOriginal?: string | null; responseLanguage?: string | null; response: Record<string,any>; }
 interface QuestionScore { qKey: string; prompt: string; type: string; avgScore: number; maxScore: number; count: number; optionCounts?: { option: string; count: number }[]; }
-interface SectionScore { section: string; sectionTitle: string; avgScore: number; maxScore: number; questionScores: QuestionScore[]; comments: string[]; }
+interface CommentEntry { text: string; original?: string; lang?: string; }
+interface SectionScore { section: string; sectionTitle: string; avgScore: number; maxScore: number; questionScores: QuestionScore[]; comments: CommentEntry[]; }
 
 function glassStyle(dark: boolean): React.CSSProperties { return { background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.55)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.4)", borderRadius: "2px", boxShadow: dark ? "0 1px 3px rgba(0,0,0,0.3)" : "0 1px 3px rgba(0,0,0,0.06)", transition: "all 0.15s ease" }; }
 function headerStyle(dark: boolean): React.CSSProperties { return { background: dark ? "rgba(30,30,30,0.85)" : "#ffffff", borderBottom: dark ? "1px solid #333" : "1px solid #d4d4d4", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }; }
@@ -96,6 +97,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
   const [multiCompareAiLoading, setMultiCompareAiLoading] = useState(false);
   const [showReportPreview, setShowReportPreview] = useState(false);
   const [reportContent, setReportContent] = useState<string>("");
+  const [reportEditMode, setReportEditMode] = useState(false);
 
   useEffect(() => { loadAll(); }, [surveyId]);
 
@@ -132,7 +134,11 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
       const sec = sectionMap.get(section)!;
       const qResps = flatResponses.filter((r)=>r.qKey===q.qKey);
       if(q.type==="text"||q.type==="open_text"){
-        const comments = qResps.map((r)=>r.responseText||r.response?.text).filter(Boolean) as string[];
+        const comments: CommentEntry[] = qResps.map((r)=>{
+          const text = r.responseText||r.response?.text;
+          if(!text) return null;
+          return { text, original: r.responseOriginal||r.response?.textEnglish?r.response?.text:undefined, lang: r.responseLanguage||undefined };
+        }).filter(Boolean) as CommentEntry[];
         sec.comments.push(...comments);
         sec.questionScores.push({qKey:q.qKey,prompt:q.prompt?.en||q.qKey,type:q.type,avgScore:0,maxScore:0,count:comments.length});
       } else if(q.type==="multiple_choice"){
@@ -212,7 +218,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
       }
       if (sec.comments.length > 0) {
         dataText += `  COMMENTS:\n`;
-        for (const c of sec.comments) dataText += `    - "${c}"\n`;
+        for (const c of sec.comments) dataText += `    - "${c.text}"${c.original ? ` (original: "${c.original}")` : ""}\n`;
       }
       dataText += `\n`;
     }
@@ -845,7 +851,7 @@ ${dataText}`;
                     {sec.comments.length>0&&(
                       <div style={{marginTop:16,paddingTop:12,borderTop:`1px solid ${dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.05)"}`}}>
                         <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary"),marginBottom:8}}>Comments</div>
-                        {sec.comments.map((c,i)=>(<div key={i} style={{fontSize:13,color:textColor(dark,"secondary"),padding:"8px 12px",marginBottom:4,background:dark?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.02)",borderRadius:2,borderLeft:`2px solid ${accentBg(dark)}`}}>&ldquo;{c}&rdquo;</div>))}
+                        {sec.comments.map((c,i)=>(<div key={i} style={{fontSize:13,color:textColor(dark,"secondary"),padding:"8px 12px",marginBottom:4,background:dark?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.02)",borderRadius:2,borderLeft:`2px solid ${accentBg(dark)}`}}>&ldquo;{c.text}&rdquo;{c.original&&<div style={{fontSize:11,color:textColor(dark,"tertiary"),marginTop:3,fontStyle:"italic"}}>{c.original}</div>}</div>))}
                       </div>
                     )}
                   </div>
@@ -885,7 +891,7 @@ ${dataText}`;
                 {sectionScores.filter((s)=>s.comments.length>0).map((sec)=>(
                   <div key={sec.section}>
                     <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary"),marginBottom:8,marginTop:16}}>{sec.sectionTitle}</div>
-                    {sec.comments.map((c,i)=>(<div key={i} style={{...glassStyle(dark),padding:"12px 16px",marginBottom:4,borderLeft:`2px solid ${accentBg(dark)}`,fontSize:13,color:textColor(dark,"secondary")}}>&ldquo;{c}&rdquo;</div>))}
+                    {sec.comments.map((c,i)=>(<div key={i} style={{...glassStyle(dark),padding:"12px 16px",marginBottom:4,borderLeft:`2px solid ${accentBg(dark)}`,fontSize:13,color:textColor(dark,"secondary")}}>&ldquo;{c.text}&rdquo;{c.original&&<div style={{fontSize:11,color:textColor(dark,"tertiary"),marginTop:4,fontStyle:"italic"}}>{c.original}</div>}</div>))}
                   </div>
                 ))}
               </div>
@@ -1306,7 +1312,7 @@ ${dataText}`;
             }
             if (sec.comments.length > 0) {
               text += `\n**Comments:**\n`;
-              sec.comments.forEach((c) => { text += `> "${c}"\n`; });
+              sec.comments.forEach((c) => { text += `> "${c.text}"${c.original ? ` _(${c.original})_` : ""}\n`; });
             }
             text += `\n`;
           }
@@ -1318,64 +1324,110 @@ ${dataText}`;
           setTimeout(() => setReportContent(text), 0);
         }
 
+        // Render markdown to styled HTML
+        function renderReport(md: string) {
+          return md.split("\n").map((line, i) => {
+            const trimmed = line.trim();
+            if (!trimmed) return <div key={i} style={{ height: 8 }} />;
+            if (trimmed === "---") return <hr key={i} style={{ border: "none", borderTop: `1px solid ${dark ? "#333" : "#e0e0e0"}`, margin: "16px 0" }} />;
+            if (trimmed.startsWith("# ")) return <h1 key={i} style={{ fontSize: 22, fontWeight: 700, color: textColor(dark, "primary"), margin: "0 0 8px", letterSpacing: "-0.02em" }}>{trimmed.slice(2)}</h1>;
+            if (trimmed.startsWith("## ")) {
+              const text = trimmed.slice(3);
+              const hasScore = text.includes(" — ");
+              return (
+                <h2 key={i} style={{ fontSize: 16, fontWeight: 700, color: textColor(dark, "primary"), margin: "20px 0 8px", paddingBottom: 6, borderBottom: `2px solid ${accentBg(dark)}22` }}>
+                  {hasScore ? <>{text.split(" — ")[0]} <span style={{ color: accentBg(dark), fontWeight: 600 }}>— {text.split(" — ")[1]}</span></> : text}
+                </h2>
+              );
+            }
+            if (trimmed.startsWith("> ")) return <div key={i} style={{ padding: "8px 14px", margin: "4px 0", borderLeft: `3px solid ${accentBg(dark)}`, background: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", borderRadius: "0 4px 4px 0", fontSize: 13, color: textColor(dark, "secondary"), fontStyle: "italic" }}>{trimmed.slice(2)}</div>;
+            if (trimmed.startsWith("- **")) {
+              const match = trimmed.match(/^- \*\*(.+?)\*\*:?\s*(.*)/);
+              if (match) {
+                return (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"}` }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: textColor(dark, "primary") }}>{match[1]}</span>
+                    <span style={{ fontSize: 13, color: textColor(dark, "secondary"), textAlign: "right", marginLeft: 12 }}>{match[2]}</span>
+                  </div>
+                );
+              }
+            }
+            // Bold inline
+            const parts = trimmed.split(/\*\*(.+?)\*\*/g);
+            return <p key={i} style={{ fontSize: 13, color: textColor(dark, "secondary"), margin: "3px 0", lineHeight: 1.6 }}>{parts.map((p, j) => j % 2 === 1 ? <strong key={j} style={{ fontWeight: 600, color: textColor(dark, "primary") }}>{p}</strong> : p)}</p>;
+          });
+        }
+
         return (
           <div style={{
             position: "fixed", inset: 0, zIndex: 1000,
             background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
             display: "flex", alignItems: "center", justifyContent: "center",
             padding: 24,
-          }} onClick={(e) => { if (e.target === e.currentTarget) { setShowReportPreview(false); setReportContent(""); } }}>
+          }} onClick={(e) => { if (e.target === e.currentTarget) { setShowReportPreview(false); setReportContent(""); setReportEditMode(false); } }}>
             <div style={{
-              width: "100%", maxWidth: 720, maxHeight: "90vh",
+              width: "100%", maxWidth: 680, maxHeight: "90vh",
               background: dark ? "#1e1e1e" : "#fff",
-              borderRadius: 4, boxShadow: "0 24px 48px rgba(0,0,0,0.2)",
+              borderRadius: 6, boxShadow: "0 24px 48px rgba(0,0,0,0.25)",
               display: "flex", flexDirection: "column", overflow: "hidden",
             }}>
               {/* Header */}
               <div style={{
-                padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
                 borderBottom: `1px solid ${dark ? "#333" : "#e5e5e5"}`,
+                background: dark ? "#252525" : "#fafafa",
               }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: textColor(dark, "primary") }}>Report Preview</span>
-                <div style={{ display: "flex", gap: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: textColor(dark, "primary") }}>Report</span>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button onClick={() => setReportEditMode(!reportEditMode)} style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+                    border: `1px solid ${dark ? "#444" : "#ccc"}`, borderRadius: 2, cursor: "pointer",
+                    background: reportEditMode ? accentBg(dark) : "transparent",
+                    color: reportEditMode ? "#fff" : textColor(dark, "secondary"),
+                  }}><Edit3 size={11}/> {reportEditMode ? "Done" : "Edit"}</button>
                   <button onClick={() => { downloadPDF(); }} style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
                     border: "none", borderRadius: 2, cursor: "pointer",
                     background: accentBg(dark), color: "#fff",
-                  }}><Download size={12}/> Download PDF</button>
-                  <button onClick={() => {
-                    const blob = new Blob([reportContent], { type: "text/markdown" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a"); a.href = url;
-                    a.download = `${survey?.title || "report"}.md`; a.click();
-                    URL.revokeObjectURL(url);
-                  }} style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
-                    border: `1px solid ${dark ? "#444" : "#ccc"}`, borderRadius: 2, cursor: "pointer",
-                    background: "transparent", color: textColor(dark, "secondary"),
-                  }}><FileText size={12}/> Export .md</button>
-                  <button onClick={() => { setShowReportPreview(false); setReportContent(""); }} style={{
-                    width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center",
+                  }}><Download size={11}/> PDF</button>
+                  <button disabled title="Share — Coming Soon" style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+                    border: `1px solid ${dark ? "#333" : "#d4d4d4"}`, borderRadius: 2,
+                    background: "transparent", color: textColor(dark, "tertiary"),
+                    cursor: "default", opacity: 0.4,
+                  }}><Mail size={11}/> Share</button>
+                  <button onClick={() => { setShowReportPreview(false); setReportContent(""); setReportEditMode(false); }} style={{
+                    width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
                     border: "none", background: "transparent", cursor: "pointer",
-                    color: textColor(dark, "tertiary"), fontSize: 18,
+                    color: textColor(dark, "tertiary"), fontSize: 16, marginLeft: 4,
                   }}>✕</button>
                 </div>
               </div>
-              {/* Editable content */}
-              <textarea
-                value={reportContent}
-                onChange={(e) => setReportContent(e.target.value)}
-                style={{
-                  flex: 1, padding: "24px 28px", fontSize: 13, lineHeight: 1.8,
-                  fontFamily: "'DM Sans', system-ui, monospace",
-                  border: "none", outline: "none", resize: "none",
+              {/* Content */}
+              {reportEditMode ? (
+                <textarea
+                  value={reportContent}
+                  onChange={(e) => setReportContent(e.target.value)}
+                  style={{
+                    flex: 1, padding: "24px 28px", fontSize: 13, lineHeight: 1.8,
+                    fontFamily: "monospace",
+                    border: "none", outline: "none", resize: "none",
+                    background: dark ? "#1a1a1a" : "#f8f8f8",
+                    color: textColor(dark, "primary"),
+                    overflowY: "auto",
+                  }}
+                />
+              ) : (
+                <div style={{
+                  flex: 1, padding: "28px 32px", overflowY: "auto",
                   background: dark ? "#1e1e1e" : "#fff",
-                  color: textColor(dark, "primary"),
-                  overflowY: "auto",
-                }}
-              />
+                }}>
+                  {renderReport(reportContent)}
+                </div>
+              )}
             </div>
           </div>
         );
