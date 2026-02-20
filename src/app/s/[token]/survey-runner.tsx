@@ -217,27 +217,28 @@ export function SurveyRunner({ token }: { token: string }) {
         });
 
         if (textsToTranslate.length > 0) {
-          const numbered = textsToTranslate.map((t, i) => `${i + 1}. ${t.text}`).join("\n");
+          // Build a simple key:value object for translation
+          const toTranslate: Record<string, string> = {};
+          textsToTranslate.forEach((t, i) => { toTranslate[String(i)] = t.text; });
+
           const res = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               fast: true,
-              system: `Translate each numbered line to ${langLabel}. Return ONLY the translations, one per line, numbered the same way. Keep it simple (A2/B1 level). Do not add anything else.`,
-              messages: [{ role: "user", content: numbered }],
+              system: `You are a translator. Translate each value in the JSON object to ${langLabel}. Keep it simple (A2/B1 level). Return ONLY a valid JSON object with the same keys and translated values. No markdown, no backticks, no explanation.`,
+              messages: [{ role: "user", content: JSON.stringify(toTranslate) }],
             }),
           });
           const data = await res.json();
           if (data.text) {
-            // Parse by line number for robustness
-            const lineMap = new Map<number, string>();
-            data.text.split("\n").forEach((l: string) => {
-              const m = l.match(/^(\d+)\.\s*(.*)/);
-              if (m) lineMap.set(parseInt(m[1]), m[2].trim());
-            });
-            // Fallback: if no numbered lines found, use positional
-            if (lineMap.size === 0) {
-              data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean).forEach((l: string, i: number) => lineMap.set(i + 1, l));
+            let parsed: Record<string, string> = {};
+            try {
+              // Strip any markdown code fences
+              const clean = data.text.replace(/```json\s*|```\s*/g, "").trim();
+              parsed = JSON.parse(clean);
+            } catch {
+              console.error("Failed to parse translation JSON:", data.text);
             }
 
             const translatedSurvey = { ...survey! };
@@ -245,7 +246,7 @@ export function SurveyRunner({ token }: { token: string }) {
             const updatedSections = [...sections];
 
             textsToTranslate.forEach((item, i) => {
-              const translated = lineMap.get(i + 1);
+              const translated = parsed[String(i)];
               if (!translated) return;
               if (item.key === "meta_title") translatedSurvey.title = translated;
               else if (item.key === "meta_intro") translatedSurvey.intro = translated;

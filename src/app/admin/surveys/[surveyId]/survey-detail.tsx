@@ -739,8 +739,6 @@ ${dataText}`;
             <div style={{fontSize:24,fontWeight:700,color:textColor(dark,"primary"),lineHeight:1,marginBottom:8}}>{completed.length}</div>
             <div style={{display:"flex",gap:12,fontSize:11,color:textColor(dark,"tertiary")}}>
               <span>{filteredSessions.length} opened</span>
-              <span>·</span>
-              <span>{filteredSessions.length>0?Math.round((completed.length/filteredSessions.length)*100):0}% completion</span>
             </div>
           </div>
           {/* Avg Time tile */}
