@@ -69,6 +69,7 @@ interface ChatMessage {
   role: "assistant" | "user";
   content: string;
   choices?: string[];
+  multiChoices?: string[];
   widget?: { type: "scale"|"slider"|"nps"; min: number; max: number; lowLabel?: string; highLabel?: string };
 }
 
@@ -156,6 +157,7 @@ export function ChatbotRunner({ token }: { token: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [multiSelected, setMultiSelected] = useState<string[]>([]);
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [savedResponses, setSavedResponses] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -259,9 +261,12 @@ export function ChatbotRunner({ token }: { token: string }) {
       if (q.type === "scale") desc += ` — score ${q.config?.min || 0} to ${q.config?.max || 3}`;
       if (q.type === "slider") desc += ` — number ${q.config?.min || 0} to ${q.config?.max || 100}`;
       if (q.type === "nps") desc += ` — number 0 to 10`;
-      if (q.type === "multiple_choice") desc += ` — choices: ${(q.config?.options || []).join(", ")}`;
+      if (q.type === "multiple_choice") {
+        desc += ` — choices: ${(q.config?.options || []).join(", ")}`;
+        if (q.config?.selectMode === "multi") desc += ` [MULTI-SELECT: student can pick MORE THAN ONE]`;
+      }
       if (q.type === "open_text") desc += ` — ask them to write`;
-      desc += ` [Rephrase this in simple A2 English - do NOT copy the prompt text directly]`;
+      desc += ` [Keep the SAME topic/meaning as the prompt - rephrase slightly in simple A2 English but do NOT change what the question is asking about. If it says "breakfast" ask about breakfast, not "today".]`;
       return desc;
     }).join("\n");
 
@@ -291,7 +296,8 @@ HOW TO ASK:
 - For scale scores: write your question, then on a NEW line add: <widget type="scale" min="0" max="3" />
 - For slider: write your question, then: <widget type="slider" min="0" max="100" />
 - For NPS (0-10): write your question, then: <widget type="nps" min="0" max="10" />
-- For choices: write your question, then: <choices>Option A|Option B|Option C</choices>
+- For choices (single select): write your question, then: <choices>Option A|Option B|Option C</choices>
+- For choices (multi select): write your question, then: <multichoices>Option A|Option B|Option C</multichoices>
 - For open text: just ask "What do you think?" or "Tell me more" (no widget needed, they type)
 - After ALL questions done: "Thank you! Bye! 😊"
 - IMPORTANT: Do NOT write "(0-3)" or "(0-100)" in the text. The widget handles the input.
@@ -308,13 +314,15 @@ For open_text: value is their full text response
 
 If you can't parse a valid answer, ask for clarification. Do NOT include the tag if no valid answer was given.
 
-QUESTIONS (ask in this order):
+QUESTIONS (ask ALL ${questions.length} in this exact order — do NOT skip any):
 ${qList}
 
 IMPORTANT: 
 - Start by greeting them and asking the FIRST question
 - Only ask one question per message
+- You MUST ask EVERY question in the list above. NEVER skip a question. There are exactly ${questions.length} questions - ask all ${questions.length}.
 - The student might respond in ${langName} or English - understand both
+- CRITICAL: You MUST ALWAYS include a <response> tag whenever the student gives ANY answer, even if it's just a number. Every answer needs a response tag. For example if they say "9" for an NPS question, you MUST output <response qKey="..." type="nps" value="9" />
 - When all ${questions.length} questions are done, send a final thank you message with <survey_complete /> tag`;
   }
 
@@ -338,8 +346,9 @@ IMPORTANT:
 
       const cleaned = cleanAIResponse(data.text);
       const choices = extractChoices(data.text);
+      const multiChoices = extractMultiChoices(data.text);
       const widget = extractWidget(data.text);
-      setMessages([{ role: "assistant", content: cleaned, choices, widget }]);
+      setMessages([{ role: "assistant", content: cleaned, choices, multiChoices, widget }]);
     } catch (err) {
       console.error("AI greeting error:", err);
       setMessages([{ role: "assistant", content: "Hi! Let's get started with your feedback. How comfortable is the classroom? (0 = not at all, 3 = very comfortable)" }]);
@@ -391,8 +400,9 @@ IMPORTANT:
 
       const cleaned = cleanAIResponse(data.text);
       const choices = extractChoices(data.text);
+      const multiChoices = extractMultiChoices(data.text);
       const widget = extractWidget(data.text);
-      setMessages((prev) => [...prev, { role: "assistant", content: cleaned, choices, widget }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: cleaned, choices, multiChoices, widget }]);
     } catch (err) {
       console.error("Chat error:", err);
       setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, I had a moment there. Could you try saying that again?" }]);
@@ -460,6 +470,7 @@ IMPORTANT:
       .replace(/<response[^/]*\/>/g, "")
       .replace(/<survey_complete\s*\/>/g, "")
       .replace(/<choices>[^<]*<\/choices>/g, "")
+      .replace(/<multichoices>[^<]*<\/multichoices>/g, "")
       .replace(/<widget[^/]*\/>/g, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
@@ -467,6 +478,12 @@ IMPORTANT:
 
   function extractChoices(text: string): string[] | undefined {
     const match = text.match(/<choices>([^<]*)<\/choices>/);
+    if (!match) return undefined;
+    return match[1].split("|").map((s) => s.trim()).filter(Boolean);
+  }
+
+  function extractMultiChoices(text: string): string[] | undefined {
+    const match = text.match(/<multichoices>([^<]*)<\/multichoices>/);
     if (!match) return undefined;
     return match[1].split("|").map((s) => s.trim()).filter(Boolean);
   }
@@ -493,10 +510,10 @@ IMPORTANT:
 
   function sendInteractiveAnswer(answer: string) {
     // Remove interactive elements from last message
-    setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, choices: undefined, widget: undefined } : m));
+    setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, choices: undefined, multiChoices: undefined, widget: undefined } : m));
 
     const newUserMsg: ChatMessage = { role: "user", content: answer };
-    const cleanedPrev = messages.map((m) => ({ ...m, choices: undefined, widget: undefined }));
+    const cleanedPrev = messages.map((m) => ({ ...m, choices: undefined, multiChoices: undefined, widget: undefined }));
     const updatedMessages = [...cleanedPrev, newUserMsg];
     setMessages(updatedMessages);
     setIsTyping(true);
@@ -524,8 +541,9 @@ IMPORTANT:
         }
         const cleaned = cleanAIResponse(data.text);
         const choices = extractChoices(data.text);
+        const multiChoices = extractMultiChoices(data.text);
         const widget = extractWidget(data.text);
-        setMessages((prev) => [...prev, { role: "assistant", content: cleaned, choices, widget }]);
+        setMessages((prev) => [...prev, { role: "assistant", content: cleaned, choices, multiChoices, widget }]);
       })
       .catch(() => {
         setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, could you try again?" }]);
@@ -771,7 +789,7 @@ IMPORTANT:
             <div style={{
               display: "flex",
               justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-              marginBottom: (msg.choices || msg.widget) ? 6 : 10,
+              marginBottom: (msg.choices || msg.multiChoices || msg.widget) ? 6 : 10,
               animation: "fadeSlide 0.3s ease",
             }}>
               <div style={{
@@ -818,29 +836,25 @@ IMPORTANT:
             {msg.widget && msg.widget.type === "nps" && (
               <div style={{ marginBottom: 10, paddingLeft: 4, animation: "fadeSlide 0.3s ease" }}>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {Array.from({ length: 11 }, (_, j) => j).map((n) => (
+                  {Array.from({ length: 11 }, (_, j) => j).map((n) => {
+                    const clr = n <= 6 ? "#e74c3c" : n <= 8 ? ORANGE : "#27ae60";
+                    return (
                     <button key={n} onClick={() => sendValue(n)} disabled={isTyping}
                       style={{
                         width: 36, height: 36, fontSize: 13, fontWeight: 700, fontFamily: "inherit",
-                        borderRadius: 10, border: `2px solid ${n <= 6 ? "#e74c3c" : n <= 8 ? ORANGE : "#27ae60"}`,
-                        background: "rgba(255,255,255,0.9)",
-                        color: n <= 6 ? "#e74c3c" : n <= 8 ? ORANGE : "#27ae60",
+                        borderRadius: 10, border: "none",
+                        background: clr,
+                        color: "#fff",
                         cursor: isTyping ? "default" : "pointer", transition: "all 0.15s",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                        boxShadow: `0 2px 6px ${clr}44`,
                         display: "flex", alignItems: "center", justifyContent: "center",
+                        opacity: 0.85,
                       }}
-                      onMouseEnter={(e) => {
-                        if (!isTyping) {
-                          const c = n <= 6 ? "#e74c3c" : n <= 8 ? ORANGE : "#27ae60";
-                          e.currentTarget.style.background = c; e.currentTarget.style.color = "#fff";
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        const c = n <= 6 ? "#e74c3c" : n <= 8 ? ORANGE : "#27ae60";
-                        e.currentTarget.style.background = "rgba(255,255,255,0.9)"; e.currentTarget.style.color = c;
-                      }}
+                      onMouseEnter={(e) => { if (!isTyping) { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1.1)"; }}}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.transform = "scale(1)"; }}
                     >{n}</button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -873,11 +887,68 @@ IMPORTANT:
                       boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                     }}
                     onMouseEnter={(e) => { if (!isTyping) { e.currentTarget.style.background = ORANGE; e.currentTarget.style.color = "#fff"; }}}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.9)"; e.currentTarget.style.color = ORANGE; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = multiSelected.includes(choice) ? ORANGE : "rgba(255,255,255,0.9)"; e.currentTarget.style.color = multiSelected.includes(choice) ? "#fff" : ORANGE; }}
                   >
                     {choice}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Multi-select choices */}
+            {msg.multiChoices && msg.multiChoices.length > 0 && (
+              <div style={{
+                display: "flex", flexDirection: "column", gap: 6,
+                marginBottom: 10, paddingLeft: 4,
+                animation: "fadeSlide 0.3s ease",
+              }}>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>Tap all that apply, then press Done</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {msg.multiChoices.map((choice, ci) => {
+                    const sel = multiSelected.includes(choice);
+                    return (
+                      <button
+                        key={ci}
+                        onClick={() => setMultiSelected((prev) => prev.includes(choice) ? prev.filter((c) => c !== choice) : [...prev, choice])}
+                        disabled={isTyping}
+                        style={{
+                          padding: "8px 18px", fontSize: 14, fontFamily: "inherit",
+                          fontWeight: 600, borderRadius: 20,
+                          border: `2px solid ${ORANGE}`,
+                          background: sel ? ORANGE : "rgba(255,255,255,0.9)",
+                          color: sel ? "#fff" : ORANGE,
+                          cursor: isTyping ? "default" : "pointer",
+                          transition: "all 0.15s",
+                          boxShadow: sel ? `0 2px 8px ${ORANGE}44` : "0 1px 4px rgba(0,0,0,0.06)",
+                        }}
+                      >
+                        {sel ? "✓ " : ""}{choice}
+                      </button>
+                    );
+                  })}
+                </div>
+                {multiSelected.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const answer = multiSelected.join(", ");
+                      setMultiSelected([]);
+                      sendInteractiveAnswer(answer);
+                    }}
+                    style={{
+                      padding: "10px 24px", fontSize: 14, fontFamily: "inherit",
+                      fontWeight: 700, borderRadius: 20,
+                      border: "none",
+                      background: `linear-gradient(135deg, ${ORANGE}, #F4A261)`,
+                      color: "#fff",
+                      cursor: "pointer",
+                      alignSelf: "flex-start",
+                      marginTop: 4,
+                      boxShadow: `0 2px 8px ${ORANGE}44`,
+                    }}
+                  >
+                    Done ✓
+                  </button>
+                )}
               </div>
             )}
           </div>
