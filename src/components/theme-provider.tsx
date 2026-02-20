@@ -21,7 +21,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // Check localStorage or system preference
     const stored = localStorage.getItem("sv-theme") as Theme | null;
     if (stored) {
       setTheme(stored);
@@ -46,14 +45,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setTheme((t) => (t === "light" ? "dark" : "light"));
   }
 
-  // Prevent flash of wrong theme
-  if (!mounted) {
-    return <>{children}</>;
-  }
-
   return (
     <ThemeContext.Provider value={{ theme, toggle }}>
-      {children}
+      <div style={{ visibility: mounted ? "visible" : "hidden" }}>
+        {children}
+      </div>
     </ThemeContext.Provider>
   );
 }
