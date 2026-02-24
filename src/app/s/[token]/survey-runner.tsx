@@ -217,35 +217,42 @@ export function SurveyRunner({ token }: { token: string }) {
         });
 
         if (textsToTranslate.length > 0) {
-          const numbered = textsToTranslate.map((t, i) => `${i + 1}. ${t.text}`).join("\n");
-          const res = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              fast: true,
-              system: `Translate each numbered line to ${langLabel}. Return ONLY the translations, one per line, numbered the same way. Keep it simple (A2/B1 level). Do not add anything else.`,
-              messages: [{ role: "user", content: numbered }],
-            }),
-          });
-          const data = await res.json();
-          if (data.text) {
-            // Parse by line number for robustness
-            const lineMap = new Map<number, string>();
-            data.text.split("\n").forEach((l: string) => {
-              const m = l.match(/^(\d+)\.\s*(.*)/);
-              if (m) lineMap.set(parseInt(m[1]), m[2].trim());
-            });
-            // Fallback: if no numbered lines found, use positional
-            if (lineMap.size === 0) {
-              data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean).forEach((l: string, i: number) => lineMap.set(i + 1, l));
-            }
+          // Batch translate in groups of 12 for reliability
+          const BATCH_SIZE = 12;
+          const allTranslated = new Map<number, string>();
 
+          for (let b = 0; b < textsToTranslate.length; b += BATCH_SIZE) {
+            const batch = textsToTranslate.slice(b, b + BATCH_SIZE);
+            const numbered = batch.map((t, i) => `${i + 1}. ${t.text}`).join("\n");
+            try {
+              const res = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  fast: true,
+                  system: `Translate each numbered line to ${langLabel}. Return ONLY the translations, one per line, numbered the same way. Keep it simple (A2/B1 level). Do not add anything else.`,
+                  messages: [{ role: "user", content: numbered }],
+                }),
+              });
+              const data = await res.json();
+              if (data.text) {
+                data.text.split("\n").forEach((l: string) => {
+                  const m = l.match(/^(\d+)\.\s*(.*)/);
+                  if (m) allTranslated.set(b + parseInt(m[1]) - 1, m[2].trim());
+                });
+              }
+            } catch (err) {
+              console.error(`Translation batch ${b} error:`, err);
+            }
+          }
+
+          if (allTranslated.size > 0) {
             const translatedSurvey = { ...survey! };
             const newUi = { ...uiStrings };
             const updatedSections = [...sections];
 
             textsToTranslate.forEach((item, i) => {
-              const translated = lineMap.get(i + 1);
+              const translated = allTranslated.get(i);
               if (!translated) return;
               if (item.key === "meta_title") translatedSurvey.title = translated;
               else if (item.key === "meta_intro") translatedSurvey.intro = translated;
