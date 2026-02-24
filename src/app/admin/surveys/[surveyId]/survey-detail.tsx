@@ -361,15 +361,16 @@ TONE: Professional, concise, factual. No filler. No vague language. Each bullet 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fast: true,
-          system: `You summarize a student's survey responses for their teacher before a tutorial meeting. Be factual and concise. Use this format:
+          system: `You summarize a student's survey responses for their teacher before a tutorial meeting. Be factual but warm and supportive — this is about helping the student, not judging them. Use this format:
 
-🟢 Green flags: things going well (exact scores, positive answers)
-🟠 Orange flags: areas to watch or discuss (moderate scores, mixed signals)  
-🔴 Red flags: concerns or low scores that need attention
+🟢 Green flags: things going well (exact scores, positive answers). Acknowledge their strengths.
+🟠 Orange flags: areas to explore together (moderate scores, mixed signals). Frame positively.
+🔴 Red flags: areas where the student may need extra support. Be empathetic, not alarming.
 
-Then 1-2 sentences of suggested talking points for the tutorial.
+💬 Suggested questions for the tutorial:
+- 3 open-ended questions the teacher could ask to start a productive conversation with the student, based on their answers.
 
-Rules: Use EXACT numbers from the data. No vague language. No headings. No bold/markdown. Keep it under 150 words.`,
+Rules: Use EXACT numbers from the data. No bold/markdown. Keep it under 200 words. If a flag category has nothing notable, skip it. Frame everything as an opportunity to help, not a problem.`,
           messages: [{ role: "user", content: dataText }],
           max_tokens: 300,
         }),
@@ -1218,7 +1219,7 @@ ${dataText}`;
                         {studentAiSummary.split("\n").map((line,i)=>{
                           const trimmed = line.trim().replace(/\*\*/g,"");
                           if(!trimmed) return <br key={i}/>;
-                          if(trimmed.startsWith("🟢")||trimmed.startsWith("🟠")||trimmed.startsWith("🔴")) return <div key={i} style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary"),marginTop:12,marginBottom:2}}>{trimmed}</div>;
+                          if(trimmed.startsWith("🟢")||trimmed.startsWith("🟠")||trimmed.startsWith("🔴")||trimmed.startsWith("💬")) return <div key={i} style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary"),marginTop:12,marginBottom:2}}>{trimmed}</div>;
                           if(trimmed.startsWith("- ")||trimmed.startsWith("• ")) return <div key={i} style={{paddingLeft:12,marginBottom:2}}>• {trimmed.replace(/^[-•]\s*/,"")}</div>;
                           return <div key={i}>{trimmed}</div>;
                         })}
