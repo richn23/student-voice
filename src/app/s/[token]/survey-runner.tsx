@@ -244,10 +244,6 @@ export function SurveyRunner({ token }: { token: string }) {
             const newUi = { ...uiStrings };
             const updatedSections = [...sections];
 
-            const translatedSurvey = { ...survey! };
-            const newUi = { ...uiStrings };
-            const updatedSections = [...sections];
-
             textsToTranslate.forEach((item, i) => {
               const translated = lineMap.get(i + 1);
               if (!translated) return;
