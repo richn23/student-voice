@@ -11,7 +11,7 @@ interface QuestionData { id: string; qKey: string; type: string; prompt: Record<
 interface DeploymentData { id: string; token: string; label: string; campus?: string; status: string; deliveryMode?: string; createdAt: Date; }
 interface SessionData { id: string; deploymentId: string; language: string; completedAt: Date | null; startedAt: Date; responseSummary?: Record<string, any>; }
 interface ResponseData { questionId: string; qKey: string; type: string; score: number | null; responseText: string | null; responseOriginal?: string | null; responseLanguage?: string | null; response: Record<string,any>; }
-interface QuestionScore { qKey: string; prompt: string; type: string; avgScore: number; maxScore: number; count: number; optionCounts?: { option: string; count: number }[]; }
+interface QuestionScore { qKey: string; prompt: string; type: string; avgScore: number; maxScore: number; count: number; optionCounts?: { option: string; count: number }[]; sampleComments?: string[]; }
 interface CommentEntry { text: string; original?: string; lang?: string; prompt?: string; qKey?: string; }
 interface SectionScore { section: string; sectionTitle: string; avgScore: number; maxScore: number; questionScores: QuestionScore[]; comments: CommentEntry[]; }
 
@@ -174,7 +174,8 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
           return { text, original: r.responseOriginal||r.response?.textEnglish?r.response?.text:undefined, lang: r.responseLanguage||undefined, prompt: q.prompt?.en||q.qKey, qKey: q.qKey };
         }).filter(Boolean) as CommentEntry[];
         sec.comments.push(...comments);
-        sec.questionScores.push({qKey:q.qKey,prompt:q.prompt?.en||q.qKey,type:q.type,avgScore:0,maxScore:0,count:comments.length});
+        const sampleComments = comments.slice(0, 3).map((c) => c.text);
+        sec.questionScores.push({qKey:q.qKey,prompt:q.prompt?.en||q.qKey,type:q.type,avgScore:0,maxScore:0,count:comments.length,sampleComments});
       } else if(q.type==="multiple_choice"){
         const options = q.config?.options||[];
         const optionCounts = options.map((opt)=>({ option:opt, count:qResps.filter((r)=>r.response?.value===opt||(Array.isArray(r.response?.value)&&r.response.value.includes(opt))||(r.response?.index!==undefined&&options[r.response.index]===opt)||(Array.isArray(r.response?.indices)&&r.response.indices.some((idx:number)=>options[idx]===opt))).length }));
@@ -1078,18 +1079,42 @@ ${dataText}`;
         {/* Sections grid */}
         {activeTab==="sections"&&(
           <div style={{display:"grid",gridTemplateColumns:"repeat(2, 1fr)",gap:12}}>
-            {sectionScores.map((sec)=>(
-              <div key={sec.section} style={{...glassStyle(dark),padding:20}}>
+            {sectionScores.filter((sec)=>sec.section!=="name"&&sec.section!=="__name__").map((sec)=>(
+              <div key={sec.section} style={{...glassStyle(dark),padding:20,display:"flex",flexDirection:"column"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
                   <span style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary")}}>{sec.sectionTitle}</span>
                   {sec.maxScore>0&&<span style={{fontSize:22,fontWeight:700,color:scoreColor(sec.avgScore,sec.maxScore,dark)}}>{sec.avgScore}<span style={{fontSize:12,color:textColor(dark,"tertiary")}}>/{sec.maxScore}</span></span>}
                   {sec.maxScore===0&&<span style={{fontSize:11,color:textColor(dark,"tertiary")}}>{sec.questionScores.reduce((a,b)=>a+b.count,0)} responses</span>}
                 </div>
-                {sec.questionScores.map((qs)=>(
-                  <div key={qs.qKey} style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:textColor(dark,"secondary")}}>{qs.prompt}</span>{qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&<span style={{fontSize:12,fontWeight:600,color:scoreColor(qs.avgScore,qs.maxScore,dark)}}>{qs.avgScore}/{qs.maxScore}</span>}{(qs.type==="open_text"||qs.type==="text")&&<span style={{fontSize:10,color:textColor(dark,"tertiary")}}>{qs.count} responses</span>}</div>
-                    {qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&<div style={{height:4,background:dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.05)",borderRadius:1}}><div style={{height:"100%",width:`${qs.maxScore>0?(qs.avgScore/qs.maxScore)*100:0}%`,background:scoreColor(qs.avgScore,qs.maxScore,dark),borderRadius:1}}/></div>}
-                    {qs.type==="multiple_choice"&&qs.optionCounts&&<div style={{display:"flex",gap:4,marginTop:2}}>{qs.optionCounts.map((oc)=>(<span key={oc.option} style={{fontSize:10,color:textColor(dark,"tertiary"),padding:"2px 6px",background:dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.03)",borderRadius:2}}>{oc.option}: {oc.count}</span>))}</div>}
+                {sec.questionScores.filter((qs)=>qs.qKey!=="student_name").map((qs)=>(
+                  <div key={qs.qKey} style={{marginBottom:14}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:textColor(dark,"secondary")}}>{qs.prompt}</span>{qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&<span style={{fontSize:12,fontWeight:600,color:scoreColor(qs.avgScore,qs.maxScore,dark)}}>{qs.avgScore}/{qs.maxScore}</span>}{(qs.type==="open_text"||qs.type==="text")&&<span style={{fontSize:10,color:textColor(dark,"tertiary")}}>{qs.count} responses</span>}</div>
+                    {qs.type!=="multiple_choice"&&qs.type!=="open_text"&&qs.type!=="text"&&qs.maxScore>0&&<div style={{height:4,background:dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.05)",borderRadius:2}}><div style={{height:"100%",width:`${qs.maxScore>0?(qs.avgScore/qs.maxScore)*100:0}%`,background:scoreColor(qs.avgScore,qs.maxScore,dark),borderRadius:2}}/></div>}
+                    {qs.type==="multiple_choice"&&qs.optionCounts&&(
+                      <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:4}}>
+                        {qs.optionCounts.sort((a,b)=>b.count-a.count).map((oc)=>{
+                          const maxCount = Math.max(...qs.optionCounts!.map((o)=>o.count), 1);
+                          return (
+                            <div key={oc.option} style={{display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{fontSize:11,color:textColor(dark,"secondary"),minWidth:100,textAlign:"right"}}>{oc.option}</span>
+                              <div style={{flex:1,height:6,background:dark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.04)",borderRadius:3}}>
+                                <div style={{height:"100%",width:`${(oc.count/maxCount)*100}%`,background:accentBg(dark),borderRadius:3,minWidth:oc.count>0?4:0}}/>
+                              </div>
+                              <span style={{fontSize:11,fontWeight:600,color:textColor(dark,"tertiary"),minWidth:16}}>{oc.count}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {(qs.type==="open_text"||qs.type==="text")&&qs.sampleComments&&qs.sampleComments.length>0&&(
+                      <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:3}}>
+                        {qs.sampleComments.map((c,ci)=>(
+                          <div key={ci} style={{fontSize:12,color:textColor(dark,"secondary"),padding:"6px 10px",borderLeft:`2px solid ${accentBg(dark)}`,background:dark?"rgba(255,255,255,0.02)":"rgba(0,0,0,0.015)",borderRadius:"0 3px 3px 0",lineHeight:1.5}}>
+                            &ldquo;{c.length>100?c.slice(0,100)+"...":c}&rdquo;
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
