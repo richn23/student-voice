@@ -323,11 +323,11 @@ export function SurveyRunner({ token }: { token: string }) {
 
     const sec = sections[sectionIdx];
 
-    // Collect open text answers that need translation
+    // Collect open text answers that need translation (skip name field)
     const textsToTranslate: { qId: string; text: string }[] = [];
     if (language !== "en") {
       for (const q of sec.questions) {
-        if ((q.type === "open_text" || q.type === "text") && answers[q.id]?.trim()) {
+        if ((q.type === "open_text" || q.type === "text") && answers[q.id]?.trim() && q.qKey !== "student_name") {
           textsToTranslate.push({ qId: q.id, text: answers[q.id].trim() });
         }
       }

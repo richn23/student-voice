@@ -25,6 +25,7 @@ import {
   AlertCircle,
   Globe,
   Sparkles,
+  Users,
 } from "lucide-react";
 
 // ─── Types ───
@@ -65,6 +66,7 @@ interface SurveySetup {
   languageSelectionEnabled: boolean;
   intro: string;
   completionMessage: string;
+  responseMode: "anonymous" | "named";
 }
 
 // ─── Style helpers ───
@@ -226,6 +228,7 @@ export function SurveyBuilder() {
     languageSelectionEnabled: true,
     intro: "",
     completionMessage: "",
+    responseMode: "anonymous",
   });
 
   // Step 2 — Sections + Questions
@@ -367,6 +370,7 @@ export function SurveyBuilder() {
         toneProfile: setup.toneProfile,
         toneCustom: setup.toneProfile === "custom" ? setup.toneCustom : "",
         languageSelectionEnabled: setup.languageSelectionEnabled,
+        responseMode: setup.responseMode,
         intro: setup.intro || null,
         completionMessage: setup.completionMessage || null,
         status: "live",
@@ -389,6 +393,24 @@ export function SurveyBuilder() {
 
       // 3. Create sections + questions
       let qCounter = 0;
+
+      // If named mode, insert name question first
+      if (setup.responseMode === "named") {
+        qCounter++;
+        const nameQRef = doc(collection(db, `surveys/${surveyRef.id}/versions/${versionRef.id}/questions`));
+        await setDoc(nameQRef, {
+          qKey: "student_name",
+          type: "open_text",
+          prompt: { en: "What is your name?" },
+          sectionId: "__name__",
+          section: "name",
+          sectionTitle: { en: "Before we start" },
+          order: 0,
+          required: true,
+          config: {},
+        });
+      }
+
       for (let si = 0; si < sections.length; si++) {
         const sec = sections[si];
 
@@ -608,6 +630,31 @@ export function SurveyBuilder() {
                   </span>
                 </div>
               </div>
+
+              {/* Response Mode */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                  <Users size={14} style={{ color: accentBg(dark) }} />
+                  <label style={{ ...labelStyle(dark), margin: 0 }}>Response Mode</label>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {(["anonymous", "named"] as const).map((mode) => (
+                    <button key={mode} onClick={() => updateSetup("responseMode", mode)} style={{
+                      flex: 1, padding: "10px 14px", borderRadius: 4, cursor: "pointer",
+                      border: `1px solid ${setup.responseMode === mode ? accentBg(dark) : (dark ? "#444" : "#ccc")}`,
+                      background: setup.responseMode === mode ? `${accentBg(dark)}11` : "transparent",
+                      fontFamily: "inherit", textAlign: "left",
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: setup.responseMode === mode ? accentBg(dark) : textColor(dark, "primary") }}>
+                        {mode === "anonymous" ? "Anonymous" : "Named"}
+                      </div>
+                      <div style={{ fontSize: 11, color: textColor(dark, "tertiary"), marginTop: 2 }}>
+                        {mode === "anonymous" ? "No student names — aggregated data only" : "Students enter their name — view individual responses"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Next */}
@@ -824,7 +871,7 @@ export function SurveyBuilder() {
               <div style={{ textAlign: "center", marginBottom: 20 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: textColor(dark, "primary"), marginBottom: 4 }}>{setup.title || "Survey Title"}</div>
                 <div style={{ fontSize: 13, color: textColor(dark, "secondary") }}>
-                  {setup.intro || "We'd love to hear your feedback. Your answers are anonymous."}
+                  {setup.intro || (setup.responseMode === "named" ? "We'd love to hear your thoughts. Your teacher will review your responses." : "We'd love to hear your feedback. Your answers are anonymous.")}
                 </div>
               </div>
 
