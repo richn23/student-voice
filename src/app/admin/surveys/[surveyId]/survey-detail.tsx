@@ -361,7 +361,15 @@ TONE: Professional, concise, factual. No filler. No vague language. Each bullet 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fast: true,
-          system: `You summarize a single student's survey responses for their teacher. Write 3-4 sentences that give the teacher a quick picture of this student: how they're feeling, where they're confident/struggling, what they want, and any notable answers. Be specific — use their actual answers. Write in a professional but warm tone. Do not use headings or bullet points.`,
+          system: `You summarize a student's survey responses for their teacher before a tutorial meeting. Be factual and concise. Use this format:
+
+🟢 Green flags: things going well (exact scores, positive answers)
+🟠 Orange flags: areas to watch or discuss (moderate scores, mixed signals)  
+🔴 Red flags: concerns or low scores that need attention
+
+Then 1-2 sentences of suggested talking points for the tutorial.
+
+Rules: Use EXACT numbers from the data. No vague language. No headings. No bold/markdown. Keep it under 150 words.`,
           messages: [{ role: "user", content: dataText }],
           max_tokens: 300,
         }),
@@ -423,21 +431,29 @@ TONE: Professional, concise, factual. No filler. No vague language. Each bullet 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          system: `You summarize survey results for a class of language students. Their teacher will read this before tutorial meetings. Write a clear, factual summary with these sections:
+          system: `You summarize survey results for a class of language students. Be factual and data-driven. Use this format:
 
-## Class Overview
-2-3 sentences: how many responded, overall sentiment, any standout patterns.
+Overview: 2-3 sentences. Response rate, languages used, completion stats.
 
-## Key Patterns
-3-5 bullet points: what most students said, common themes, notable scores. Use exact numbers.
+🟢 Green flags
+Things going well. High scores, popular positive responses. Use exact numbers and counts.
 
-## Things to Watch
-2-3 bullet points: low scores, concerns, or areas students want more help with.
+🟠 Orange flags  
+Areas to monitor. Moderate scores, split opinions, small sample concerns.
 
-## Suggested Actions
-2-3 specific things the teacher could do based on the data.
+🔴 Red flags
+Low scores, concerns raised, areas students are struggling with.
 
-Be concise and specific. Use the actual numbers and quotes from the data.`,
+Suggested actions
+2-3 specific, actionable things the teacher could do based on the data.
+
+Rules:
+- Use EXACT numbers (e.g. "3 out of 6 students" not "most students")
+- No markdown formatting (no **, no ##, no #)
+- No bold text
+- Keep each flag section to 2-4 bullet points
+- If a flag category has nothing, skip it
+- Keep the whole summary under 300 words`,
           messages: [{ role: "user", content: dataText }],
           max_tokens: 800,
         }),
@@ -1269,10 +1285,13 @@ ${dataText}`;
                   {classAiSummary?(
                     <div style={{fontSize:13,color:textColor(dark,"secondary"),lineHeight:1.7}}>
                       {classAiSummary.split("\n").map((line,i)=>{
-                        const trimmed = line.trim();
+                        const trimmed = line.trim().replace(/\*\*/g,"");
                         if(!trimmed) return <br key={i}/>;
-                        if(trimmed.startsWith("## ")) return <div key={i} style={{fontSize:14,fontWeight:700,color:textColor(dark,"primary"),marginTop:12,marginBottom:4}}>{trimmed.replace("## ","")}</div>;
-                        if(trimmed.startsWith("- ")) return <div key={i} style={{paddingLeft:12,marginBottom:3}}>• {trimmed.slice(2)}</div>;
+                        if(trimmed.startsWith("# ")) return null;
+                        if(trimmed.startsWith("## ")) return <div key={i} style={{fontSize:14,fontWeight:700,color:textColor(dark,"primary"),marginTop:16,marginBottom:4}}>{trimmed.replace("## ","")}</div>;
+                        if(trimmed.startsWith("🟢")||trimmed.startsWith("🟠")||trimmed.startsWith("🔴")) return <div key={i} style={{fontSize:14,fontWeight:700,color:textColor(dark,"primary"),marginTop:16,marginBottom:4}}>{trimmed}</div>;
+                        if(trimmed.match(/^(Overview|Suggested actions)/i)) return <div key={i} style={{fontSize:14,fontWeight:700,color:textColor(dark,"primary"),marginTop:16,marginBottom:4}}>{trimmed}</div>;
+                        if(trimmed.startsWith("- ")||trimmed.startsWith("• ")) return <div key={i} style={{paddingLeft:12,marginBottom:3}}>• {trimmed.replace(/^[-•]\s*/,"")}</div>;
                         return <div key={i}>{trimmed}</div>;
                       })}
                     </div>
