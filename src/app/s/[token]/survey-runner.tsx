@@ -82,6 +82,7 @@ type Phase = "loading" | "error" | "language" | "intro" | "survey" | "complete";
 // ─── Main Component ───
 export function SurveyRunner({ token }: { token: string }) {
   const [phase, setPhase] = useState<Phase>("loading");
+  const [translating, setTranslating] = useState(false);
   const [error, setError] = useState("");
   const [deployment, setDeployment] = useState<DeploymentData | null>(null);
   const [survey, setSurvey] = useState<SurveyData | null>(null);
@@ -180,6 +181,7 @@ export function SurveyRunner({ token }: { token: string }) {
 
     // Translate content if non-English
     if (lang !== "en") {
+      setTranslating(true);
       try {
         const langLabel = LANGUAGES.find((l) => l.code === lang)?.label || lang;
         const textsToTranslate: { key: string; text: string }[] = [];
@@ -306,6 +308,7 @@ export function SurveyRunner({ token }: { token: string }) {
       } catch (err) {
         console.error("Translation error (non-blocking):", err);
       }
+      setTranslating(false);
     }
 
     const versionId = deployment.versionId || deployment.surveyVersionId || "";
@@ -533,6 +536,22 @@ export function SurveyRunner({ token }: { token: string }) {
           </div>
 
           <GlassCard>
+            {translating ? (
+              <div style={{ padding: "60px 28px", textAlign: "center" }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%", margin: "0 auto 20px",
+                  border: "3px solid rgba(0,0,0,0.06)", borderTopColor: "#E8723A",
+                  animation: "spin 0.8s linear infinite",
+                }} />
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                <p style={{ fontSize: 16, fontWeight: 600, color: "#1a1a1a", margin: "0 0 6px" }}>
+                  Preparing your survey...
+                </p>
+                <p style={{ fontSize: 13, color: "#888", margin: 0 }}>
+                  Translating to {LANGUAGES.find((l) => l.code === language)?.native || language}
+                </p>
+              </div>
+            ) : (
             <div style={{ padding: "36px 28px", textAlign: "center" }}>
               <h1 style={{ fontSize: 24, fontWeight: 700, color: "#1a1a1a", margin: "0 0 6px", letterSpacing: "-0.02em" }}>
                 Welcome
@@ -720,6 +739,7 @@ export function SurveyRunner({ token }: { token: string }) {
                 </div>
               )}
             </div>
+            )}
           </GlassCard>
 
           <p style={{ fontSize: 11, color: "#aaa", marginTop: 24, textAlign: "center" }}>

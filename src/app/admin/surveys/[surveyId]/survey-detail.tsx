@@ -12,7 +12,7 @@ interface DeploymentData { id: string; token: string; label: string; campus?: st
 interface SessionData { id: string; deploymentId: string; language: string; completedAt: Date | null; startedAt: Date; responseSummary?: Record<string, any>; }
 interface ResponseData { questionId: string; qKey: string; type: string; score: number | null; responseText: string | null; responseOriginal?: string | null; responseLanguage?: string | null; response: Record<string,any>; }
 interface QuestionScore { qKey: string; prompt: string; type: string; avgScore: number; maxScore: number; count: number; optionCounts?: { option: string; count: number }[]; }
-interface CommentEntry { text: string; original?: string; lang?: string; }
+interface CommentEntry { text: string; original?: string; lang?: string; prompt?: string; qKey?: string; }
 interface SectionScore { section: string; sectionTitle: string; avgScore: number; maxScore: number; questionScores: QuestionScore[]; comments: CommentEntry[]; }
 
 function glassStyle(dark: boolean): React.CSSProperties { return { background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.55)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.4)", borderRadius: "2px", boxShadow: dark ? "0 1px 3px rgba(0,0,0,0.3)" : "0 1px 3px rgba(0,0,0,0.06)", transition: "all 0.15s ease" }; }
@@ -167,10 +167,11 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
       const sec = sectionMap.get(section)!;
       const qResps = flatResponses.filter((r)=>r.qKey===q.qKey);
       if(q.type==="text"||q.type==="open_text"){
+        if(q.qKey==="student_name") { sec.questionScores.push({qKey:q.qKey,prompt:q.prompt?.en||q.qKey,type:q.type,avgScore:0,maxScore:0,count:qResps.length}); continue; }
         const comments: CommentEntry[] = qResps.map((r)=>{
           const text = r.responseText||r.response?.text;
           if(!text) return null;
-          return { text, original: r.responseOriginal||r.response?.textEnglish?r.response?.text:undefined, lang: r.responseLanguage||undefined };
+          return { text, original: r.responseOriginal||r.response?.textEnglish?r.response?.text:undefined, lang: r.responseLanguage||undefined, prompt: q.prompt?.en||q.qKey, qKey: q.qKey };
         }).filter(Boolean) as CommentEntry[];
         sec.comments.push(...comments);
         sec.questionScores.push({qKey:q.qKey,prompt:q.prompt?.en||q.qKey,type:q.type,avgScore:0,maxScore:0,count:comments.length});
@@ -1100,13 +1101,27 @@ ${dataText}`;
         {activeTab==="comments"&&(
           <div>
             {allComments.length===0?(<div style={{...glassStyle(dark),padding:"48px 24px",textAlign:"center"}}><p style={{fontSize:14,color:textColor(dark,"tertiary")}}>No comments yet</p></div>):(
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {sectionScores.filter((s)=>s.comments.length>0).map((sec)=>(
-                  <div key={sec.section}>
-                    <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary"),marginBottom:8,marginTop:16}}>{sec.sectionTitle}</div>
-                    {sec.comments.map((c,i)=>(<div key={i} style={{...glassStyle(dark),padding:"12px 16px",marginBottom:4,borderLeft:`2px solid ${accentBg(dark)}`,fontSize:13,color:textColor(dark,"secondary")}}>&ldquo;{c.text}&rdquo;{c.original&&<div style={{fontSize:11,color:textColor(dark,"tertiary"),marginTop:4,fontStyle:"italic"}}>{c.original}</div>}</div>))}
-                  </div>
-                ))}
+              <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                {sectionScores.filter((s)=>s.comments.length>0).map((sec)=>{
+                  // Group comments by question
+                  const byQuestion = new Map<string, CommentEntry[]>();
+                  sec.comments.forEach((c) => {
+                    const key = c.prompt || "Other";
+                    if (!byQuestion.has(key)) byQuestion.set(key, []);
+                    byQuestion.get(key)!.push(c);
+                  });
+                  return (
+                    <div key={sec.section}>
+                      <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary"),marginBottom:8,marginTop:8}}>{sec.sectionTitle}</div>
+                      {Array.from(byQuestion.entries()).map(([prompt, comments]) => (
+                        <div key={prompt} style={{marginBottom:12}}>
+                          <div style={{fontSize:12,fontWeight:600,color:textColor(dark,"secondary"),marginBottom:6}}>{prompt}</div>
+                          {comments.map((c,i)=>(<div key={i} style={{...glassStyle(dark),padding:"10px 14px",marginBottom:3,borderLeft:`2px solid ${accentBg(dark)}`,fontSize:13,color:textColor(dark,"secondary")}}>{c.text}{c.original&&<div style={{fontSize:11,color:textColor(dark,"tertiary"),marginTop:3,fontStyle:"italic"}}>{c.original}</div>}</div>))}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
