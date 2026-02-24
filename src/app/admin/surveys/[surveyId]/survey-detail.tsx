@@ -1214,7 +1214,15 @@ ${dataText}`;
                       }}>{studentAiLoading?"Generating...":studentAiSummary?"Regenerate":"Generate"}</button>
                     </div>
                     {studentAiSummary?(
-                      <div style={{fontSize:14,color:textColor(dark,"secondary"),lineHeight:1.7}}>{studentAiSummary}</div>
+                      <div style={{fontSize:14,color:textColor(dark,"secondary"),lineHeight:1.7}}>
+                        {studentAiSummary.split("\n").map((line,i)=>{
+                          const trimmed = line.trim().replace(/\*\*/g,"");
+                          if(!trimmed) return <br key={i}/>;
+                          if(trimmed.startsWith("🟢")||trimmed.startsWith("🟠")||trimmed.startsWith("🔴")) return <div key={i} style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary"),marginTop:12,marginBottom:2}}>{trimmed}</div>;
+                          if(trimmed.startsWith("- ")||trimmed.startsWith("• ")) return <div key={i} style={{paddingLeft:12,marginBottom:2}}>• {trimmed.replace(/^[-•]\s*/,"")}</div>;
+                          return <div key={i}>{trimmed}</div>;
+                        })}
+                      </div>
                     ):(
                       <div style={{fontSize:13,color:textColor(dark,"tertiary"),fontStyle:"italic"}}>Click Generate to create an AI summary of this student's responses</div>
                     )}
