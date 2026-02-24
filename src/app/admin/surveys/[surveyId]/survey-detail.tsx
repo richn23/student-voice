@@ -9,7 +9,7 @@ import { Sun, Moon, Users, BarChart3, Clock, MessageSquare, Link2, ChevronDown, 
 interface SurveyData { title: string; status: string; createdAt: Date; }
 interface QuestionData { id: string; qKey: string; type: string; prompt: Record<string,string>; section?: string; sectionId?: string; sectionTitle?: Record<string,string>; order: number; required?: boolean; config?: { min?: number; max?: number; lowLabel?: string; highLabel?: string; options?: string[]; selectMode?: string; }; }
 interface DeploymentData { id: string; token: string; label: string; campus?: string; status: string; deliveryMode?: string; createdAt: Date; }
-interface SessionData { id: string; deploymentId: string; language: string; completedAt: Date | null; startedAt: Date; }
+interface SessionData { id: string; deploymentId: string; language: string; completedAt: Date | null; startedAt: Date; responseSummary?: Record<string, any>; }
 interface ResponseData { questionId: string; qKey: string; type: string; score: number | null; responseText: string | null; responseOriginal?: string | null; responseLanguage?: string | null; response: Record<string,any>; }
 interface QuestionScore { qKey: string; prompt: string; type: string; avgScore: number; maxScore: number; count: number; optionCounts?: { option: string; count: number }[]; }
 interface CommentEntry { text: string; original?: string; lang?: string; }
@@ -63,7 +63,7 @@ function renderSummaryBlock(text: string, dark: boolean, accentBgFn: (d: boolean
 }
 function formatTime(seconds: number): string { if(seconds===0) return "—"; if(seconds<60) return `${seconds}s`; const m=Math.floor(seconds/60); const s=seconds%60; return s>0?`${m}m ${s}s`:`${m}m`; }
 
-type Tab = "overview"|"sections"|"comments"|"compare"|"ai";
+type Tab = "overview"|"sections"|"comments"|"responses"|"compare"|"ai";
 
 export function SurveyDetail({ surveyId }: { surveyId: string }) {
   const { theme, toggle } = useTheme();
@@ -98,6 +98,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
   const [showReportPreview, setShowReportPreview] = useState(false);
   const [reportContent, setReportContent] = useState<string>("");
   const [reportEditMode, setReportEditMode] = useState(false);
+  const [selectedResponse, setSelectedResponse] = useState<string|null>(null);
 
   useEffect(() => { loadAll(); }, [surveyId]);
 
@@ -116,10 +117,38 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
       const depSnap = await getDocs(query(collection(db,"deployments"),where("surveyId","==",surveyId)));
       setDeployments(depSnap.docs.map((d)=>({id:d.id,...d.data(),createdAt:d.data().createdAt?.toDate()||new Date()} as DeploymentData)));
       const sessSnap = await getDocs(query(collection(db,"sessions"),where("surveyId","==",surveyId)));
-      const sessList = sessSnap.docs.map((d)=>({id:d.id,...d.data(),completedAt:d.data().completedAt?.toDate()||null,startedAt:d.data().startedAt?.toDate()||new Date()} as SessionData));
+      const sessList = sessSnap.docs.map((d)=>({id:d.id,...d.data(),completedAt:d.data().completedAt?.toDate()||null,startedAt:d.data().startedAt?.toDate()||new Date(),responseSummary:d.data().responseSummary||null} as SessionData));
       setSessions(sessList);
+
+      // Build response map — use responseSummary if available, else fall back to subcollection
       const respMap = new Map<string,ResponseData[]>();
-      for(const sess of sessList){ const rSnap = await getDocs(collection(db,`sessions/${sess.id}/responses`)); respMap.set(sess.id,rSnap.docs.map((d)=>d.data() as ResponseData)); }
+      const legacySessions = sessList.filter((s) => s.completedAt && !s.responseSummary);
+
+      // Fast path: convert responseSummary to ResponseData format
+      for (const sess of sessList) {
+        if (sess.responseSummary) {
+          const resps: ResponseData[] = Object.values(sess.responseSummary).map((r: any) => ({
+            questionId: r.qKey,
+            qKey: r.qKey,
+            type: r.type,
+            score: (r.type === "scale" || r.type === "nps" || r.type === "slider") ? r.value : null,
+            responseText: r.type === "open_text" ? (r.value || null) : null,
+            responseOriginal: r.original || null,
+            responseLanguage: null,
+            response: r.type === "multiple_choice" ? { value: r.value } : r.type === "open_text" ? { text: r.value } : { value: r.value },
+          }));
+          respMap.set(sess.id, resps);
+        }
+      }
+
+      // Slow path: legacy sessions without summary (old test data)
+      if (legacySessions.length > 0) {
+        for (const sess of legacySessions) {
+          const rSnap = await getDocs(collection(db, `sessions/${sess.id}/responses`));
+          respMap.set(sess.id, rSnap.docs.map((d) => d.data() as ResponseData));
+        }
+      }
+
       setAllResponses(respMap);
     } catch(err){ console.error("Failed to load survey:",err); } finally { setLoading(false); }
   }
@@ -191,7 +220,7 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
   if(loading) return <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:textColor(dark,"tertiary"),fontSize:14}}>Loading survey...</p></div>;
   if(!survey) return <div style={{fontFamily:"'DM Sans',system-ui,sans-serif",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:textColor(dark,"tertiary"),fontSize:14}}>Survey not found</p></div>;
 
-  const tabs: {key:Tab;label:string;icon:React.ReactNode}[] = [{key:"overview",label:"Overview",icon:<BarChart3 size={14}/>},{key:"sections",label:"Sections",icon:<Users size={14}/>},{key:"comments",label:"Comments",icon:<MessageSquare size={14}/>},{key:"compare",label:"Compare",icon:<GitCompareArrows size={14}/>},{key:"ai",label:"AI Summary",icon:<Sparkles size={14}/>}];
+  const tabs: {key:Tab;label:string;icon:React.ReactNode}[] = [{key:"overview",label:"Overview",icon:<BarChart3 size={14}/>},{key:"sections",label:"Sections",icon:<Users size={14}/>},{key:"comments",label:"Comments",icon:<MessageSquare size={14}/>},{key:"responses",label:"Responses",icon:<ClipboardList size={14}/>},{key:"compare",label:"Compare",icon:<GitCompareArrows size={14}/>},{key:"ai",label:"AI Summary",icon:<Sparkles size={14}/>}];
 
   // ─── Build data snapshot (shared by summary + Q&A) ───
   function buildDataSnapshot(): string {
@@ -951,6 +980,103 @@ ${dataText}`;
                     {sec.comments.map((c,i)=>(<div key={i} style={{...glassStyle(dark),padding:"12px 16px",marginBottom:4,borderLeft:`2px solid ${accentBg(dark)}`,fontSize:13,color:textColor(dark,"secondary")}}>&ldquo;{c.text}&rdquo;{c.original&&<div style={{fontSize:11,color:textColor(dark,"tertiary"),marginTop:4,fontStyle:"italic"}}>{c.original}</div>}</div>))}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Individual Responses */}
+        {activeTab==="responses"&&(
+          <div>
+            {completed.length===0?(
+              <div style={{...glassStyle(dark),padding:"48px 24px",textAlign:"center"}}><p style={{fontSize:14,color:textColor(dark,"tertiary")}}>No completed responses yet</p></div>
+            ):selectedResponse?(()=>{
+              const sess = completed.find((s)=>s.id===selectedResponse);
+              if(!sess) return null;
+              const summary = sess.responseSummary;
+              const respData = allResponses.get(sess.id) || [];
+              return (
+                <div>
+                  <button onClick={()=>setSelectedResponse(null)} style={{
+                    display:"flex",alignItems:"center",gap:6,padding:"6px 12px",fontSize:12,fontWeight:600,fontFamily:"inherit",
+                    border:`1px solid ${dark?"#444":"#ccc"}`,borderRadius:2,cursor:"pointer",
+                    background:"transparent",color:textColor(dark,"secondary"),marginBottom:16,
+                  }}>← Back to list</button>
+                  <div style={{...glassStyle(dark),padding:20,marginBottom:12}}>
+                    <div style={{fontSize:11,color:textColor(dark,"tertiary"),marginBottom:4}}>
+                      {new Date(sess.startedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+                      {sess.language&&sess.language!=="en"&&<span style={{marginLeft:8,padding:"1px 6px",borderRadius:2,fontSize:10,background:dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",color:textColor(dark,"tertiary")}}>{sess.language.toUpperCase()}</span>}
+                    </div>
+                    {summary?Object.values(summary).map((r: any, i: number)=>(
+                      <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)"}`}}>
+                        <div style={{fontSize:11,color:textColor(dark,"tertiary"),marginBottom:4}}>{r.prompt}</div>
+                        {(r.type==="scale"||r.type==="nps"||r.type==="slider")&&r.value!==null?(
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{fontSize:18,fontWeight:700,color:accentBg(dark)}}>{r.value}<span style={{fontSize:12,fontWeight:400,color:textColor(dark,"tertiary")}}>/{r.max}</span></div>
+                            <div style={{flex:1,height:4,borderRadius:2,background:dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)"}}>
+                              <div style={{height:4,borderRadius:2,background:accentBg(dark),width:`${(r.value/r.max)*100}%`}}/>
+                            </div>
+                          </div>
+                        ):r.type==="multiple_choice"&&r.value?(
+                          <div style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary")}}>{Array.isArray(r.value)?r.value.join(", "):r.value}</div>
+                        ):r.type==="open_text"&&r.value?(
+                          <div>
+                            <div style={{fontSize:14,color:textColor(dark,"primary"),lineHeight:1.6}}>{r.value}</div>
+                            {r.original&&<div style={{fontSize:12,color:textColor(dark,"tertiary"),fontStyle:"italic",marginTop:4}}>{r.original}</div>}
+                          </div>
+                        ):(
+                          <div style={{fontSize:13,color:textColor(dark,"tertiary"),fontStyle:"italic"}}>No response</div>
+                        )}
+                      </div>
+                    )):respData.length>0?respData.map((r,i)=>{
+                      const q = questions.find((q)=>q.qKey===r.qKey);
+                      return (
+                        <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)"}`}}>
+                          <div style={{fontSize:11,color:textColor(dark,"tertiary"),marginBottom:4}}>{q?.prompt?.en||r.qKey}</div>
+                          {r.score!==null?(
+                            <div style={{fontSize:18,fontWeight:700,color:accentBg(dark)}}>{r.score}</div>
+                          ):r.responseText?(
+                            <div style={{fontSize:14,color:textColor(dark,"primary"),lineHeight:1.6}}>{r.responseText}</div>
+                          ):r.response?.value?(
+                            <div style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary")}}>{Array.isArray(r.response.value)?r.response.value.join(", "):String(r.response.value)}</div>
+                          ):(
+                            <div style={{fontSize:13,color:textColor(dark,"tertiary"),fontStyle:"italic"}}>No response</div>
+                          )}
+                        </div>
+                      );
+                    }):(
+                      <div style={{fontSize:13,color:textColor(dark,"tertiary"),fontStyle:"italic",padding:"12px 0"}}>No response data available</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })():(
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {completed.map((sess)=>{
+                  const summary = sess.responseSummary;
+                  const nameEntry = summary?Object.values(summary).find((r: any)=>r.qKey==="student_name"||r.prompt?.toLowerCase().includes("name")):null;
+                  const studentName = (nameEntry as any)?.value || null;
+                  const firstOpenText = summary?Object.values(summary).find((r: any)=>r.type==="open_text"&&r.value&&!(r.qKey==="student_name"||r.prompt?.toLowerCase().includes("name"))):null;
+                  const preview = (firstOpenText as any)?.value?.slice(0,80) || "";
+                  return (
+                    <button key={sess.id} onClick={()=>setSelectedResponse(sess.id)} style={{
+                      ...glassStyle(dark),padding:"14px 18px",cursor:"pointer",border:`1px solid ${dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)"}`,
+                      display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left",width:"100%",fontFamily:"inherit",
+                    }}>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary"),marginBottom:2}}>
+                          {studentName||`Response #${completed.indexOf(sess)+1}`}
+                        </div>
+                        <div style={{fontSize:11,color:textColor(dark,"tertiary")}}>
+                          {new Date(sess.startedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
+                          {sess.language&&sess.language!=="en"&&` · ${sess.language.toUpperCase()}`}
+                          {preview&&<span> · {preview}{preview.length>=80?"...":""}</span>}
+                        </div>
+                      </div>
+                      <span style={{color:textColor(dark,"tertiary"),fontSize:16}}>›</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

@@ -536,7 +536,34 @@ IMPORTANT:
   // ─── Complete ───
   async function completeSurvey() {
     if (sessionId) {
-      await updateDoc(doc(db, "sessions", sessionId), { completedAt: Timestamp.now() });
+      // Build summary from saved responses
+      try {
+        const respSnap = await getDocs(collection(db, `sessions/${sessionId}/responses`));
+        const responseSummary: Record<string, any> = {};
+        respSnap.forEach((d) => {
+          const r = d.data();
+          const q = questions.find((q) => q.qKey === r.qKey);
+          const entry: any = {
+            qKey: r.qKey,
+            type: r.type,
+            prompt: q?.prompt?.en || r.qKey,
+          };
+          if (r.type === "scale" || r.type === "nps" || r.type === "slider") {
+            entry.value = r.score ?? r.response?.value ?? null;
+            entry.max = r.type === "nps" ? 10 : (r.type === "slider" ? 100 : (q?.config?.max || 3));
+          } else if (r.type === "multiple_choice") {
+            entry.value = r.response?.value ?? null;
+          } else if (r.type === "open_text") {
+            entry.value = r.responseText || r.response?.text || null;
+            if (r.responseOriginal) entry.original = r.responseOriginal;
+          }
+          responseSummary[r.qKey] = entry;
+        });
+        await updateDoc(doc(db, "sessions", sessionId), { completedAt: Timestamp.now(), responseSummary });
+      } catch (err) {
+        console.error("Failed to build summary:", err);
+        await updateDoc(doc(db, "sessions", sessionId), { completedAt: Timestamp.now() });
+      }
     }
     setTimeout(() => setPhase("complete"), 2000);
   }

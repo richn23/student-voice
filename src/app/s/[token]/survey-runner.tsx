@@ -406,8 +406,37 @@ export function SurveyRunner({ token }: { token: string }) {
     if (sectionIdx < sections.length - 1) {
       transition(() => setSectionIdx((i) => i + 1));
     } else {
-      // Complete session
-      await updateDoc(doc(db, "sessions", sessionId), { completedAt: Timestamp.now() });
+      // Build response summary for session doc
+      const responseSummary: Record<string, any> = {};
+      for (const sec of sections) {
+        for (const q of sec.questions) {
+          const entry: any = { qKey: q.qKey, type: q.type, prompt: q.prompt.en || q.prompt[Object.keys(q.prompt)[0]] || "" };
+          if (q.type === "scale" || q.type === "nps") {
+            entry.value = answers[q.id] !== undefined ? Number(answers[q.id]) : null;
+            entry.max = q.config?.max || (q.type === "nps" ? 10 : 3);
+          } else if (q.type === "slider") {
+            entry.value = sliderValues[q.id] ?? null;
+            entry.max = q.config?.max || 100;
+          } else if (q.type === "multiple_choice") {
+            const indices = selectedMC[q.id] || [];
+            if (indices.length > 0 && q.config?.options) {
+              const values = indices.map((idx) => q.config!.options![idx]);
+              entry.value = values.length === 1 ? values[0] : values;
+            } else {
+              entry.value = null;
+            }
+          } else if (q.type === "open_text" || q.type === "text") {
+            entry.value = answers[q.id] || null;
+          }
+          responseSummary[q.qKey] = entry;
+        }
+      }
+
+      // Complete session with summary
+      await updateDoc(doc(db, "sessions", sessionId), {
+        completedAt: Timestamp.now(),
+        responseSummary,
+      });
       transition(() => setPhase("complete"));
     }
   }
