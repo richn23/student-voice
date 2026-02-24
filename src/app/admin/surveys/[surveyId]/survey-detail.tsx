@@ -1167,7 +1167,7 @@ ${dataText}`;
                   {/* Student answers */}
                   <div style={{...glassStyle(dark),padding:20}}>
                     <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary"),marginBottom:12}}>Answers</div>
-                    {summary?Object.values(summary).filter((r: any)=>r.qKey!=="student_name").map((r: any, i: number)=>(
+                    {summary?questions.map((q)=>summary[q.qKey]).filter((r: any)=>r&&r.qKey!=="student_name").map((r: any, i: number)=>(
                       <div key={i} style={{padding:"14px 0",borderBottom:`1px solid ${dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)"}`}}>
                         <div style={{fontSize:12,color:textColor(dark,"tertiary"),marginBottom:6}}>{r.prompt}</div>
                         {(r.type==="scale"||r.type==="nps"||r.type==="slider")&&r.value!==null?(
