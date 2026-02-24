@@ -99,6 +99,10 @@ export function SurveyDetail({ surveyId }: { surveyId: string }) {
   const [reportContent, setReportContent] = useState<string>("");
   const [reportEditMode, setReportEditMode] = useState(false);
   const [selectedResponse, setSelectedResponse] = useState<string|null>(null);
+  const [studentAiSummary, setStudentAiSummary] = useState<string|null>(null);
+  const [studentAiLoading, setStudentAiLoading] = useState(false);
+  const [classAiSummary, setClassAiSummary] = useState<string|null>(null);
+  const [classAiLoading, setClassAiLoading] = useState(false);
 
   useEffect(() => { loadAll(); }, [surveyId]);
 
@@ -317,6 +321,129 @@ TONE: Professional, concise, factual. No filler. No vague language. Each bullet 
     } finally {
       setAiLoading(false);
     }
+  }
+
+  // ─── Student AI Summary ───
+  async function generateStudentSummary(sessId: string) {
+    if (studentAiLoading) return;
+    setStudentAiLoading(true);
+    setStudentAiSummary(null);
+    const sess = completed.find((s) => s.id === sessId);
+    if (!sess) { setStudentAiLoading(false); return; }
+    const summary = sess.responseSummary;
+    const respData = allResponses.get(sess.id) || [];
+
+    let dataText = `STUDENT RESPONSE for survey "${survey?.title}"\n`;
+    dataText += `Completed: ${new Date(sess.startedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}\n`;
+    dataText += `Language: ${sess.language || "en"}\n\n`;
+
+    if (summary) {
+      Object.values(summary).forEach((r: any) => {
+        if (r.qKey === "student_name") { dataText += `Student name: ${r.value}\n`; return; }
+        dataText += `Q: "${r.prompt}" [${r.type}]`;
+        if ((r.type === "scale" || r.type === "nps" || r.type === "slider") && r.value !== null) dataText += ` — ${r.value}/${r.max}`;
+        else if (r.value) dataText += ` — ${Array.isArray(r.value) ? r.value.join(", ") : r.value}`;
+        if (r.original) dataText += ` (original: "${r.original}")`;
+        dataText += `\n`;
+      });
+    } else {
+      respData.forEach((r) => {
+        const q = questions.find((q) => q.qKey === r.qKey);
+        dataText += `Q: "${q?.prompt?.en || r.qKey}" — ${r.score ?? r.responseText ?? r.response?.value ?? "no answer"}\n`;
+      });
+    }
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fast: true,
+          system: `You summarize a single student's survey responses for their teacher. Write 3-4 sentences that give the teacher a quick picture of this student: how they're feeling, where they're confident/struggling, what they want, and any notable answers. Be specific — use their actual answers. Write in a professional but warm tone. Do not use headings or bullet points.`,
+          messages: [{ role: "user", content: dataText }],
+          max_tokens: 300,
+        }),
+      });
+      const data = await res.json();
+      if (data.text) setStudentAiSummary(data.text);
+    } catch (err) { console.error("Student summary error:", err); }
+    finally { setStudentAiLoading(false); }
+  }
+
+  // ─── Class AI Summary ───
+  async function generateClassSummary() {
+    if (classAiLoading) return;
+    setClassAiLoading(true);
+    setClassAiSummary(null);
+
+    let dataText = `CLASS SUMMARY for survey "${survey?.title}"\n`;
+    dataText += `${completed.length} completed responses out of ${sessions.length} opened\n\n`;
+
+    // Aggregate all responses
+    for (const q of questions) {
+      if (q.qKey === "student_name") continue;
+      const allQResps: any[] = [];
+      completed.forEach((sess) => {
+        if (sess.responseSummary) {
+          const r = Object.values(sess.responseSummary).find((r: any) => r.qKey === q.qKey);
+          if (r) allQResps.push(r);
+        } else {
+          const resps = allResponses.get(sess.id) || [];
+          const r = resps.find((r) => r.qKey === q.qKey);
+          if (r) allQResps.push(r);
+        }
+      });
+
+      dataText += `Q: "${q.prompt?.en || q.qKey}" [${q.type}] — ${allQResps.length} responses\n`;
+      if (q.type === "scale" || q.type === "nps" || q.type === "slider") {
+        const scores = allQResps.map((r) => r.value ?? r.score).filter((s): s is number => s !== null);
+        if (scores.length > 0) {
+          const avg = Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100;
+          dataText += `  Average: ${avg}/${q.config?.max || (q.type === "nps" ? 10 : q.type === "slider" ? 100 : 3)}\n`;
+          dataText += `  Range: ${Math.min(...scores)} to ${Math.max(...scores)}\n`;
+        }
+      } else if (q.type === "multiple_choice") {
+        const counts: Record<string, number> = {};
+        allQResps.forEach((r) => {
+          const val = r.value ?? r.response?.value;
+          const vals = Array.isArray(val) ? val : val ? [val] : [];
+          vals.forEach((v: string) => { counts[v] = (counts[v] || 0) + 1; });
+        });
+        Object.entries(counts).sort((a, b) => b[1] - a[1]).forEach(([opt, cnt]) => { dataText += `  ${opt}: ${cnt}\n`; });
+      } else if (q.type === "open_text" || q.type === "text") {
+        const texts = allQResps.map((r) => r.value ?? r.responseText).filter(Boolean);
+        texts.forEach((t) => { dataText += `  - "${t}"\n`; });
+      }
+    }
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system: `You summarize survey results for a class of language students. Their teacher will read this before tutorial meetings. Write a clear, factual summary with these sections:
+
+## Class Overview
+2-3 sentences: how many responded, overall sentiment, any standout patterns.
+
+## Key Patterns
+3-5 bullet points: what most students said, common themes, notable scores. Use exact numbers.
+
+## Things to Watch
+2-3 bullet points: low scores, concerns, or areas students want more help with.
+
+## Suggested Actions
+2-3 specific things the teacher could do based on the data.
+
+Be concise and specific. Use the actual numbers and quotes from the data.`,
+          messages: [{ role: "user", content: dataText }],
+          max_tokens: 800,
+        }),
+      });
+      const data = await res.json();
+      if (data.text) setClassAiSummary(data.text);
+    } catch (err) { console.error("Class summary error:", err); }
+    finally { setClassAiLoading(false); }
   }
 
   // ─── Compare Deployments ───
@@ -995,48 +1122,85 @@ ${dataText}`;
               if(!sess) return null;
               const summary = sess.responseSummary;
               const respData = allResponses.get(sess.id) || [];
+              const nameEntry = summary?Object.values(summary).find((r: any)=>r.qKey==="student_name"||r.prompt?.toLowerCase().includes("name")):null;
+              const studentName = (nameEntry as any)?.value || `Response #${completed.indexOf(sess)+1}`;
+              const timeTaken = sess.completedAt && sess.startedAt ? Math.round((new Date(sess.completedAt).getTime() - new Date(sess.startedAt).getTime())/1000) : 0;
               return (
                 <div>
-                  <button onClick={()=>setSelectedResponse(null)} style={{
+                  <button onClick={()=>{setSelectedResponse(null);setStudentAiSummary(null);}} style={{
                     display:"flex",alignItems:"center",gap:6,padding:"6px 12px",fontSize:12,fontWeight:600,fontFamily:"inherit",
                     border:`1px solid ${dark?"#444":"#ccc"}`,borderRadius:2,cursor:"pointer",
                     background:"transparent",color:textColor(dark,"secondary"),marginBottom:16,
                   }}>← Back to list</button>
+
+                  {/* Student header */}
                   <div style={{...glassStyle(dark),padding:20,marginBottom:12}}>
-                    <div style={{fontSize:11,color:textColor(dark,"tertiary"),marginBottom:4}}>
-                      {new Date(sess.startedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}
-                      {sess.language&&sess.language!=="en"&&<span style={{marginLeft:8,padding:"1px 6px",borderRadius:2,fontSize:10,background:dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.04)",color:textColor(dark,"tertiary")}}>{sess.language.toUpperCase()}</span>}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontSize:20,fontWeight:700,color:textColor(dark,"primary"),marginBottom:4}}>{studentName}</div>
+                        <div style={{display:"flex",gap:12,fontSize:12,color:textColor(dark,"tertiary")}}>
+                          <span>{new Date(sess.startedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+                          {timeTaken>0&&<span>· {timeTaken>=60?`${Math.floor(timeTaken/60)}m ${timeTaken%60}s`:`${timeTaken}s`}</span>}
+                          {sess.language&&sess.language!=="en"&&<span>· {sess.language.toUpperCase()}</span>}
+                        </div>
+                      </div>
                     </div>
-                    {summary?Object.values(summary).map((r: any, i: number)=>(
-                      <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)"}`}}>
-                        <div style={{fontSize:11,color:textColor(dark,"tertiary"),marginBottom:4}}>{r.prompt}</div>
+                  </div>
+
+                  {/* Student AI Summary */}
+                  <div style={{...glassStyle(dark),padding:20,marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>AI Summary</div>
+                      <button onClick={()=>generateStudentSummary(sess.id)} disabled={studentAiLoading} style={{
+                        padding:"4px 10px",fontSize:11,fontWeight:600,fontFamily:"inherit",cursor:studentAiLoading?"default":"pointer",
+                        border:`1px solid ${dark?"#444":"#ccc"}`,borderRadius:2,
+                        background:studentAiLoading?`${accentBg(dark)}22`:"transparent",color:accentBg(dark),
+                      }}>{studentAiLoading?"Generating...":studentAiSummary?"Regenerate":"Generate"}</button>
+                    </div>
+                    {studentAiSummary?(
+                      <div style={{fontSize:14,color:textColor(dark,"secondary"),lineHeight:1.7}}>{studentAiSummary}</div>
+                    ):(
+                      <div style={{fontSize:13,color:textColor(dark,"tertiary"),fontStyle:"italic"}}>Click Generate to create an AI summary of this student's responses</div>
+                    )}
+                  </div>
+
+                  {/* Student answers */}
+                  <div style={{...glassStyle(dark),padding:20}}>
+                    <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary"),marginBottom:12}}>Answers</div>
+                    {summary?Object.values(summary).filter((r: any)=>r.qKey!=="student_name").map((r: any, i: number)=>(
+                      <div key={i} style={{padding:"14px 0",borderBottom:`1px solid ${dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)"}`}}>
+                        <div style={{fontSize:12,color:textColor(dark,"tertiary"),marginBottom:6}}>{r.prompt}</div>
                         {(r.type==="scale"||r.type==="nps"||r.type==="slider")&&r.value!==null?(
                           <div style={{display:"flex",alignItems:"center",gap:10}}>
-                            <div style={{fontSize:18,fontWeight:700,color:accentBg(dark)}}>{r.value}<span style={{fontSize:12,fontWeight:400,color:textColor(dark,"tertiary")}}>/{r.max}</span></div>
-                            <div style={{flex:1,height:4,borderRadius:2,background:dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)"}}>
-                              <div style={{height:4,borderRadius:2,background:accentBg(dark),width:`${(r.value/r.max)*100}%`}}/>
+                            <div style={{fontSize:20,fontWeight:700,color:accentBg(dark)}}>{r.value}<span style={{fontSize:13,fontWeight:400,color:textColor(dark,"tertiary")}}>/{r.max}</span></div>
+                            <div style={{flex:1,height:5,borderRadius:3,background:dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)"}}>
+                              <div style={{height:5,borderRadius:3,background:accentBg(dark),width:`${(r.value/r.max)*100}%`,transition:"width 0.3s"}}/>
                             </div>
                           </div>
                         ):r.type==="multiple_choice"&&r.value?(
-                          <div style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary")}}>{Array.isArray(r.value)?r.value.join(", "):r.value}</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                            {(Array.isArray(r.value)?r.value:[r.value]).map((v: string,vi: number)=>(
+                              <span key={vi} style={{padding:"4px 10px",borderRadius:12,fontSize:13,fontWeight:500,background:`${accentBg(dark)}15`,color:accentBg(dark),border:`1px solid ${accentBg(dark)}33`}}>{v}</span>
+                            ))}
+                          </div>
                         ):r.type==="open_text"&&r.value?(
                           <div>
-                            <div style={{fontSize:14,color:textColor(dark,"primary"),lineHeight:1.6}}>{r.value}</div>
-                            {r.original&&<div style={{fontSize:12,color:textColor(dark,"tertiary"),fontStyle:"italic",marginTop:4}}>{r.original}</div>}
+                            <div style={{fontSize:14,color:textColor(dark,"primary"),lineHeight:1.7,padding:"8px 12px",borderLeft:`2px solid ${accentBg(dark)}`,background:dark?"rgba(255,255,255,0.02)":"rgba(0,0,0,0.015)",borderRadius:"0 4px 4px 0"}}>{r.value}</div>
+                            {r.original&&<div style={{fontSize:12,color:textColor(dark,"tertiary"),fontStyle:"italic",marginTop:6,paddingLeft:14}}>{r.original}</div>}
                           </div>
                         ):(
                           <div style={{fontSize:13,color:textColor(dark,"tertiary"),fontStyle:"italic"}}>No response</div>
                         )}
                       </div>
-                    )):respData.length>0?respData.map((r,i)=>{
+                    )):respData.length>0?respData.filter((r)=>r.qKey!=="student_name").map((r,i)=>{
                       const q = questions.find((q)=>q.qKey===r.qKey);
                       return (
-                        <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)"}`}}>
-                          <div style={{fontSize:11,color:textColor(dark,"tertiary"),marginBottom:4}}>{q?.prompt?.en||r.qKey}</div>
+                        <div key={i} style={{padding:"14px 0",borderBottom:`1px solid ${dark?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)"}`}}>
+                          <div style={{fontSize:12,color:textColor(dark,"tertiary"),marginBottom:6}}>{q?.prompt?.en||r.qKey}</div>
                           {r.score!==null?(
-                            <div style={{fontSize:18,fontWeight:700,color:accentBg(dark)}}>{r.score}</div>
+                            <div style={{fontSize:20,fontWeight:700,color:accentBg(dark)}}>{r.score}</div>
                           ):r.responseText?(
-                            <div style={{fontSize:14,color:textColor(dark,"primary"),lineHeight:1.6}}>{r.responseText}</div>
+                            <div style={{fontSize:14,color:textColor(dark,"primary"),lineHeight:1.7,padding:"8px 12px",borderLeft:`2px solid ${accentBg(dark)}`}}>{r.responseText}</div>
                           ):r.response?.value?(
                             <div style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary")}}>{Array.isArray(r.response.value)?r.response.value.join(", "):String(r.response.value)}</div>
                           ):(
@@ -1051,32 +1215,63 @@ ${dataText}`;
                 </div>
               );
             })():(
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {completed.map((sess)=>{
-                  const summary = sess.responseSummary;
-                  const nameEntry = summary?Object.values(summary).find((r: any)=>r.qKey==="student_name"||r.prompt?.toLowerCase().includes("name")):null;
-                  const studentName = (nameEntry as any)?.value || null;
-                  const firstOpenText = summary?Object.values(summary).find((r: any)=>r.type==="open_text"&&r.value&&!(r.qKey==="student_name"||r.prompt?.toLowerCase().includes("name"))):null;
-                  const preview = (firstOpenText as any)?.value?.slice(0,80) || "";
-                  return (
-                    <button key={sess.id} onClick={()=>setSelectedResponse(sess.id)} style={{
-                      ...glassStyle(dark),padding:"14px 18px",cursor:"pointer",border:`1px solid ${dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)"}`,
-                      display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left",width:"100%",fontFamily:"inherit",
-                    }}>
-                      <div>
-                        <div style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary"),marginBottom:2}}>
-                          {studentName||`Response #${completed.indexOf(sess)+1}`}
+              <div>
+                {/* Class AI Summary */}
+                <div style={{...glassStyle(dark),padding:20,marginBottom:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary")}}>Class Summary · {completed.length} responses</div>
+                    <button onClick={generateClassSummary} disabled={classAiLoading} style={{
+                      padding:"4px 10px",fontSize:11,fontWeight:600,fontFamily:"inherit",cursor:classAiLoading?"default":"pointer",
+                      border:`1px solid ${dark?"#444":"#ccc"}`,borderRadius:2,
+                      background:classAiLoading?`${accentBg(dark)}22`:"transparent",color:accentBg(dark),
+                    }}>{classAiLoading?"Generating...":classAiSummary?"Regenerate":"Generate Class Summary"}</button>
+                  </div>
+                  {classAiSummary?(
+                    <div style={{fontSize:13,color:textColor(dark,"secondary"),lineHeight:1.7}}>
+                      {classAiSummary.split("\n").map((line,i)=>{
+                        const trimmed = line.trim();
+                        if(!trimmed) return <br key={i}/>;
+                        if(trimmed.startsWith("## ")) return <div key={i} style={{fontSize:14,fontWeight:700,color:textColor(dark,"primary"),marginTop:12,marginBottom:4}}>{trimmed.replace("## ","")}</div>;
+                        if(trimmed.startsWith("- ")) return <div key={i} style={{paddingLeft:12,marginBottom:3}}>• {trimmed.slice(2)}</div>;
+                        return <div key={i}>{trimmed}</div>;
+                      })}
+                    </div>
+                  ):(
+                    <div style={{fontSize:13,color:textColor(dark,"tertiary"),fontStyle:"italic"}}>Generate an AI summary to see class-wide patterns and recommendations</div>
+                  )}
+                </div>
+
+                {/* Student list */}
+                <div style={{fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:textColor(dark,"tertiary"),marginBottom:8}}>Individual Responses</div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {completed.map((sess)=>{
+                    const summary = sess.responseSummary;
+                    const nameEntry = summary?Object.values(summary).find((r: any)=>r.qKey==="student_name"||r.prompt?.toLowerCase().includes("name")):null;
+                    const studentName = (nameEntry as any)?.value || null;
+                    const firstOpenText = summary?Object.values(summary).find((r: any)=>r.type==="open_text"&&r.value&&!(r.qKey==="student_name"||r.prompt?.toLowerCase().includes("name"))):null;
+                    const preview = (firstOpenText as any)?.value?.slice(0,80) || "";
+                    const timeTaken = sess.completedAt && sess.startedAt ? Math.round((new Date(sess.completedAt).getTime() - new Date(sess.startedAt).getTime())/1000) : 0;
+                    return (
+                      <button key={sess.id} onClick={()=>{setSelectedResponse(sess.id);setStudentAiSummary(null);}} style={{
+                        ...glassStyle(dark),padding:"14px 18px",cursor:"pointer",border:`1px solid ${dark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)"}`,
+                        display:"flex",alignItems:"center",justifyContent:"space-between",textAlign:"left",width:"100%",fontFamily:"inherit",
+                      }}>
+                        <div>
+                          <div style={{fontSize:14,fontWeight:600,color:textColor(dark,"primary"),marginBottom:2}}>
+                            {studentName||`Response #${completed.indexOf(sess)+1}`}
+                          </div>
+                          <div style={{fontSize:11,color:textColor(dark,"tertiary")}}>
+                            {new Date(sess.startedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
+                            {timeTaken>0&&` · ${timeTaken>=60?`${Math.floor(timeTaken/60)}m ${timeTaken%60}s`:timeTaken+"s"}`}
+                            {sess.language&&sess.language!=="en"&&` · ${sess.language.toUpperCase()}`}
+                            {preview&&<span> · {preview}{preview.length>=80?"...":""}</span>}
+                          </div>
                         </div>
-                        <div style={{fontSize:11,color:textColor(dark,"tertiary")}}>
-                          {new Date(sess.startedAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
-                          {sess.language&&sess.language!=="en"&&` · ${sess.language.toUpperCase()}`}
-                          {preview&&<span> · {preview}{preview.length>=80?"...":""}</span>}
-                        </div>
-                      </div>
-                      <span style={{color:textColor(dark,"tertiary"),fontSize:16}}>›</span>
-                    </button>
-                  );
-                })}
+                        <span style={{color:textColor(dark,"tertiary"),fontSize:16}}>›</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

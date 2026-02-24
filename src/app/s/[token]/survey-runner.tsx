@@ -102,7 +102,7 @@ export function SurveyRunner({ token }: { token: string }) {
     sections: "sections", questions: "questions", toComplete: "to complete",
     begin: "Begin →", continue: "Continue →", submit: "Submit →", back: "← Back",
     thankYou: "Thank you", powered: "Powered by Student Voice",
-    shareThoughts: "Share your thoughts...", selectAll: "Select all that apply",
+    shareThoughts: "Share your thoughts...", selectAll: "Select all that apply", enterName: "Enter your name...",
     sectionOf: "of", section: "Section",
     defaultCompletion: "Your feedback helps us improve. Thank you for taking the time!",
   });
@@ -190,7 +190,7 @@ export function SurveyRunner({ token }: { token: string }) {
         if (survey?.completionMessage) textsToTranslate.push({ key: "meta_completion", text: survey.completionMessage });
 
         // UI strings
-        const uiKeys = ["sections", "questions", "to complete", "Begin →", "Continue →", "Submit →", "← Back", "Thank you", "Powered by Student Voice", "Share your thoughts...", "Select all that apply", "Section", "of", "Your feedback helps us improve. Thank you for taking the time!"];
+        const uiKeys = ["sections", "questions", "to complete", "Begin →", "Continue →", "Submit →", "← Back", "Thank you", "Powered by Student Voice", "Share your thoughts...", "Select all that apply", "Section", "of", "Your feedback helps us improve. Thank you for taking the time!", "Enter your name..."];
         uiKeys.forEach((text, i) => textsToTranslate.push({ key: `ui_${i}`, text }));
 
         // Collect section titles
@@ -217,43 +217,46 @@ export function SurveyRunner({ token }: { token: string }) {
         });
 
         if (textsToTranslate.length > 0) {
-          // Build a simple key:value object for translation
-          const toTranslate: Record<string, string> = {};
-          textsToTranslate.forEach((t, i) => { toTranslate[String(i)] = t.text; });
-
+          const numbered = textsToTranslate.map((t, i) => `${i + 1}. ${t.text}`).join("\n");
           const res = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               fast: true,
-              system: `You are a translator. Translate each value in the JSON object to ${langLabel}. Keep it simple (A2/B1 level). Return ONLY a valid JSON object with the same keys and translated values. No markdown, no backticks, no explanation.`,
-              messages: [{ role: "user", content: JSON.stringify(toTranslate) }],
+              system: `Translate each numbered line to ${langLabel}. Return ONLY the translations, one per line, numbered the same way. Keep it simple (A2/B1 level). Do not add anything else.`,
+              messages: [{ role: "user", content: numbered }],
             }),
           });
           const data = await res.json();
           if (data.text) {
-            let parsed: Record<string, string> = {};
-            try {
-              // Strip any markdown code fences
-              const clean = data.text.replace(/```json\s*|```\s*/g, "").trim();
-              parsed = JSON.parse(clean);
-            } catch {
-              console.error("Failed to parse translation JSON:", data.text);
+            // Parse by line number for robustness
+            const lineMap = new Map<number, string>();
+            data.text.split("\n").forEach((l: string) => {
+              const m = l.match(/^(\d+)\.\s*(.*)/);
+              if (m) lineMap.set(parseInt(m[1]), m[2].trim());
+            });
+            // Fallback: if no numbered lines found, use positional
+            if (lineMap.size === 0) {
+              data.text.split("\n").map((l: string) => l.replace(/^\d+\.\s*/, "").trim()).filter(Boolean).forEach((l: string, i: number) => lineMap.set(i + 1, l));
             }
 
             const translatedSurvey = { ...survey! };
             const newUi = { ...uiStrings };
             const updatedSections = [...sections];
 
+            const translatedSurvey = { ...survey! };
+            const newUi = { ...uiStrings };
+            const updatedSections = [...sections];
+
             textsToTranslate.forEach((item, i) => {
-              const translated = parsed[String(i)];
+              const translated = lineMap.get(i + 1);
               if (!translated) return;
               if (item.key === "meta_title") translatedSurvey.title = translated;
               else if (item.key === "meta_intro") translatedSurvey.intro = translated;
               else if (item.key === "meta_completion") translatedSurvey.completionMessage = translated;
               else if (item.key.startsWith("ui_")) {
                 const uiIdx = parseInt(item.key.split("_")[1]);
-                const uiMap = ["sections", "questions", "toComplete", "begin", "continue", "submit", "back", "thankYou", "powered", "shareThoughts", "selectAll", "section", "sectionOf", "defaultCompletion"];
+                const uiMap = ["sections", "questions", "toComplete", "begin", "continue", "submit", "back", "thankYou", "powered", "shareThoughts", "selectAll", "section", "sectionOf", "defaultCompletion", "enterName"];
                 if (uiMap[uiIdx]) newUi[uiMap[uiIdx]] = translated;
               }
               else if (item.key.startsWith("sec_")) {
@@ -948,15 +951,15 @@ export function SurveyRunner({ token }: { token: string }) {
                 {(q.type === "open_text" || q.type === "text") && (
                   <div style={{ paddingLeft: 32 }}>
                     <textarea
-                      placeholder={uiStrings.shareThoughts}
+                      placeholder={q.qKey === "student_name" ? (uiStrings.enterName || "Enter your name...") : uiStrings.shareThoughts}
                       value={answers[q.id] || ""}
                       onChange={(e) => setAnswer(q.id, e.target.value)}
                       style={{
-                        width: "100%", minHeight: 88, padding: "14px 16px",
+                        width: "100%", minHeight: q.qKey === "student_name" ? 44 : 88, padding: "14px 16px",
                         fontSize: 14, fontFamily: "'DM Sans', system-ui, sans-serif",
                         borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)",
                         background: "rgba(255,255,255,0.5)", color: "#2a2a2a",
-                        outline: "none", resize: "vertical", boxSizing: "border-box",
+                        outline: "none", resize: q.qKey === "student_name" ? "none" : "vertical", boxSizing: "border-box",
                         transition: "all 0.2s ease",
                       }}
                       onFocus={(e) => { e.currentTarget.style.borderColor = "#E8723A"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(232,114,58,0.1)"; }}
