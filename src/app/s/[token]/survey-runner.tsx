@@ -435,7 +435,12 @@ export function SurveyRunner({ token }: { token: string }) {
               entry.value = null;
             }
           } else if (q.type === "open_text" || q.type === "text") {
-            entry.value = answers[q.id] || null;
+            const originalText = answers[q.id] || null;
+            const englishText = translations.get(q.id);
+            entry.value = englishText || originalText;
+            if (englishText && originalText && englishText !== originalText) {
+              entry.original = originalText;
+            }
           }
           responseSummary[q.qKey] = entry;
         }
