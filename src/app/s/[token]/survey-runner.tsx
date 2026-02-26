@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "@/lib/firebase";
 import {
   collection,
@@ -99,6 +99,13 @@ export function SurveyRunner({ token }: { token: string }) {
   const [langSearch, setLangSearch] = useState("");
   const [customLang, setCustomLang] = useState("");
   const [showOtherInput, setShowOtherInput] = useState(false);
+
+  // *** FIX 1: Store original English MC options before translation overwrites them ***
+  const [originalOptions, setOriginalOptions] = useState<Record<string, string[]>>({});
+
+  // *** FIX 2: Accumulate translations across ALL sections (not just current) ***
+  const allTranslationsRef = useRef<Map<string, string>>(new Map());
+
   const [uiStrings, setUiStrings] = useState<Record<string, string>>({
     sections: "sections", questions: "questions", toComplete: "to complete",
     begin: "Begin →", continue: "Continue →", submit: "Submit →", back: "← Back",
@@ -201,6 +208,17 @@ export function SurveyRunner({ token }: { token: string }) {
             textsToTranslate.push({ key: `sec_${si}`, text: sec.title.en });
           }
         });
+
+        // *** FIX 1: Save original English MC options BEFORE translation ***
+        const origOpts: Record<string, string[]> = {};
+        sections.forEach((sec) => {
+          sec.questions.forEach((q) => {
+            if (q.config?.options) {
+              origOpts[q.id] = [...q.config.options]; // clone the English options
+            }
+          });
+        });
+        setOriginalOptions(origOpts);
 
         // Collect question prompts, labels, and options
         sections.forEach((sec) => {
@@ -368,6 +386,11 @@ export function SurveyRunner({ token }: { token: string }) {
       }
     }
 
+    // *** FIX 2: Store translations in the persistent ref so they survive across sections ***
+    translations.forEach((val, key) => {
+      allTranslationsRef.current.set(key, val);
+    });
+
     // Save all responses for this section
     for (const q of sec.questions) {
       let responseData: any = {
@@ -393,8 +416,20 @@ export function SurveyRunner({ token }: { token: string }) {
       } else if (q.type === "multiple_choice") {
         const indices = selectedMC[q.id] || [];
         if (indices.length > 0 && q.config?.options) {
-          const values = indices.map((idx) => q.config!.options![idx]);
-          responseData.response = { value: values.length === 1 ? values[0] : values, indices };
+          const displayValues = indices.map((idx) => q.config!.options![idx]); // translated (what student saw)
+
+          // *** FIX 1: Map back to English using originalOptions ***
+          const englishOpts = originalOptions[q.id];
+          const englishValues = englishOpts
+            ? indices.map((idx) => englishOpts[idx] || displayValues[indices.indexOf(idx)])
+            : displayValues; // fallback if no originals (English user)
+
+          const isTranslated = language !== "en" && englishOpts;
+          responseData.response = {
+            value: englishValues.length === 1 ? englishValues[0] : englishValues,
+            indices,
+            ...(isTranslated ? { originalValue: displayValues.length === 1 ? displayValues[0] : displayValues } : {}),
+          };
           responseData.score = null;
         }
       } else if (q.type === "open_text" || q.type === "text") {
@@ -429,14 +464,25 @@ export function SurveyRunner({ token }: { token: string }) {
           } else if (q.type === "multiple_choice") {
             const indices = selectedMC[q.id] || [];
             if (indices.length > 0 && q.config?.options) {
-              const values = indices.map((idx) => q.config!.options![idx]);
-              entry.value = values.length === 1 ? values[0] : values;
+              // *** FIX 1: Use original English options for summary ***
+              const englishOpts = originalOptions[q.id];
+              const englishValues = englishOpts
+                ? indices.map((idx) => englishOpts[idx])
+                : indices.map((idx) => q.config!.options![idx]);
+              entry.value = englishValues.length === 1 ? englishValues[0] : englishValues;
+
+              // Also store the translated version as original (what student saw)
+              if (language !== "en" && englishOpts) {
+                const displayValues = indices.map((idx) => q.config!.options![idx]);
+                entry.original = displayValues.length === 1 ? displayValues[0] : displayValues;
+              }
             } else {
               entry.value = null;
             }
           } else if (q.type === "open_text" || q.type === "text") {
             const originalText = answers[q.id] || null;
-            const englishText = translations.get(q.id);
+            // *** FIX 2: Use allTranslationsRef which has translations from ALL sections ***
+            const englishText = allTranslationsRef.current.get(q.id);
             entry.value = englishText || originalText;
             if (englishText && originalText && englishText !== originalText) {
               entry.original = originalText;
